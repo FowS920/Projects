@@ -1,0 +1,49 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>11415ff1-a78d-4f1a-8f31-95f5f9a7697f</ProjectGuid>
+    <ProjectHome>
+    </ProjectHome>
+    <StartupFile>KEK420_Connect.py</StartupFile>
+    <SearchPath>..\..\Library\Python Scripts</SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <Name>KEK420</Name>
+    <RootNamespace>KEK420_Connect</RootNamespace>
+    <IsWindowsApplication>False</IsWindowsApplication>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ASCII.py" />
+    <Compile Include="cDisplay.py" />
+    <Compile Include="cLCD.py" />
+    <Compile Include="cSPI.py" />
+    <Compile Include="KEK420_Connect.py" />
+    <Compile Include="KEK420_Server.py" />
+    <Compile Include="KEK420_Utilities.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Library\Python Scripts\Library.pyproj">
+      <Name>Library</Name>
+      <Project>{c45f4d66-f8c8-4ba7-8a40-965f62fb9035}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
+  <!-- Uncomment the CoreCompile target to enable the Build command in
+       Visual Studio and specify your pre- and post-build commands in
+       the BeforeBuild and AfterBuild targets below. -->
+  <!--<Target Name="CoreCompile" />-->
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+</Project>

@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27004.2009
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "KEK420", "KEK420\Python Scripts\KEK420.pyproj", "{11415FF1-A78D-4F1A-8F31-95F5F9A7697F}"
+EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Library", "Library\Python Scripts\Library.pyproj", "{C45F4D66-F8C8-4BA7-8A40-965F62FB9035}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{11415FF1-A78D-4F1A-8F31-95F5F9A7697F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{11415FF1-A78D-4F1A-8F31-95F5F9A7697F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C45F4D66-F8C8-4BA7-8A40-965F62FB9035}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C45F4D66-F8C8-4BA7-8A40-965F62FB9035}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {776792F3-5568-458C-938A-457EDE31F698}
+	EndGlobalSection
+EndGlobal
