@@ -1,6 +1,9 @@
+from cCounter import *
+from cLog import *
+
+#TODO : Do not import has *
 from threading import *
 from socket import *
-from cCounter import *
 
 import struct
 import sys
@@ -24,20 +27,37 @@ class TCP:
     MAXIMUM_PACKET_SIZE = 4096
 
     #Variables definition
-    sHostIP = "10.0.10.100"
-    sPeerIP = "10.0.10.?"
+    sHostIP = "10.0.10.?"   # << Host's IP (Slave Only)
+    sPeerIP = "10.0.10.?"   # << Peer's IP (Host Only)
 
-    iPort = 4756
-    iTimeOut = 5
+    iPort = 4756            # << Port used for commands
+    iTimeOut = 5            # << Command port timeout
 
-    bTCPHost = False
-    bConnected = False
+    iLogPort = 4757         # << Port used for log
+    iLogTimeOut = 5         # << Log port timeout
 
-    #clHost_Socket
-    #clSlave_Socket
-    #clPeer_Socket
+    bTCPHost = False        # << Are we a host
+    bConnected = False      # << Are we connected
 
-    #Server only variable (number of clients connected)
+    clLog = Log()           # << Log Class (Slave Only)
+
+    #clHost_Socket          # << Host Socket (Host Only)
+    #clHost_LogSocket       # << Host Log Socket (Host Only)
+    #clSlave_Socket         # << Slave Socket (Slave Only)
+    #clSlave_LogSocket      # << Slave Log Socket (Slave Only)
+
+    clLocal = local()               # << Local variable for threads ; Value is different for each thread
+
+    #clLocal.clPeer_Socket          # << Peer Socket (Host Only)
+    #clLocal.clPeer_LogSocket       # << Peer Log Socket (Host Only)
+    #clLocal.bLogging               # << Are we logging prints
+
+    #Slave only variable (Threads and connections)
+    clLoggingThreadStarted = Event()
+    clLoggingThreadStop = Event()
+    clLoggingThreadEnded = Event()
+
+    #Server only variable (Threads and connections)
     iConnections = 0
 
     clThreadStarted = Event()
@@ -45,11 +65,17 @@ class TCP:
 
     # @Define   Initialisation of the class
     #
-    def __init__(self, bIsHost):
+    # @Param    [in] bIsHost : True if Host, false if Slave
+    # @Param    [in, opt.] sHostIP : If Host, IP can be provided
+    #
+    # @Note     Default host IP is set to 10.0.10.100
+    #
+    def __init__(self, bIsHost, sHostIP = "10.0.10.100"):
 
         self.clThreadStarted.clear()
         self.clThreadStop.clear()
         self.bTCPHost = bIsHost
+        self.sHostIP = sHostIP
 
     # @Define   Destructor of the class
     def __del__(self):
@@ -88,12 +114,21 @@ class TCP:
                     return False
 
                 try:
+                    #Create Host Socket
                     self.clHost_Socket = socket(AF_INET, SOCK_STREAM, 0, None)
                     bSocketCreated = True
                     self.clHost_Socket.settimeout(self.iTimeOut)
                     self.clHost_Socket.bind((self.sHostIP, self.iPort))
                     self.clHost_Socket.listen(5)
 
+                    #Create Host Log Socket
+                    self.clHost_LogSocket = socket(AF_INET, SOCK_STREAM, 0, None)
+                    bLogSocketCreated = True
+                    self.clHost_LogSocket.settimeout(self.iLogTimeOut)
+                    self.clHost_LogSocket.bind((self.sHostIP, self.iLogPort))
+                    self.clHost_LogSocket.listen(5)
+
+                    #Start Accepting Connection Attempts
                     if not self.StartAcceptationThread():
                         print("Error while trying to start acceptation thread!")
                         raise Exception("Could not start acceptation thread...")
@@ -103,6 +138,8 @@ class TCP:
 
                     if bSocketCreated == True:
                         self.clHost_Socket.close()
+                    if bLogSocketCreated == True:
+                        self.clHost_LoggingSocket.close()
 
                     self.bConnected = False
                     return False
@@ -110,15 +147,25 @@ class TCP:
             else:
 
                 try:
+                    #Create Slave Socket
                     self.clSlave_Socket  = socket(AF_INET, SOCK_STREAM, 0, None)
                     bSocketCreated = True
                     self.clSlave_Socket.settimeout(self.iTimeOut)
                     self.clSlave_Socket.connect((sIP, self.iPort))
+
+                    #Create Slave Log Socket
+                    self.clSlave_LogSocket  = socket(AF_INET, SOCK_STREAM, 0, None)
+                    bLogSocketCreated = True
+                    self.clSlave_LogSocket.settimeout(self.iLogTimeOut)
+                    self.clSlave_LogSocket.connect((sIP, self.iLogPort))
+
                     self.bConnected = True
                 except:
                     
                     if bSocketCreated == True:
                         self.clSlave_Socket.close()
+                    if bLogSocketCreated == True:
+                        self.clSlave_LogSocket.close()
 
                     self.bConnected = False
                     return False
@@ -139,6 +186,7 @@ class TCP:
                         print("Error while trying to stop threads!")
 
                     self.clHost_Socket.close()
+                    self.clHost_LogSocket.close()
 
                     self.bConnected = False
 
@@ -147,6 +195,8 @@ class TCP:
                     self.SendData(self.clSlave_Socket, False, 404)
 
                     self.clSlave_Socket.shutdown(SHUT_RDWR)
+                    self.clSlave_Socket.close()
+                    self.clSlave_LogSocket.shutdown(SHUT_RDWR)
                     self.clSlave_Socket.close()
 
                     self.bConnected = False
@@ -174,6 +224,8 @@ class TCP:
                 try:
                     self.clPeer_Socket, self.sPeerIP = self.clHost_Socket.accept()
                     self.clPeer_Socket.settimeout(self.iTimeOut)
+                    self.clPeer_LogSocket, self.sPeerIP = self.clHost_LogSocket.accept()
+                    self.clPeer_LogSocket.settimeout(self.iLogTimeOut)
                 except:
                     return False
 
@@ -210,6 +262,32 @@ class TCP:
 
         return True
 
+    # @Define   Start logging thread
+    #
+    # @Return   True : Success, False : Error
+    #
+    def StartLoggingThread(self, clSocket):
+
+        self.clLoggingThreadStarted.clear()
+        self.clLoggingThreadStop.clear()
+        self.clLoggingThreadEnded.clear()
+
+        t = Thread(target = self.LoggingThread)
+        t.start()
+
+        clCounter = Counter()
+        clCounter.StartCounter()
+
+        while ((clCounter.GetCounterValue() < 3) and (not self.clLoggingThreadStarted.is_set())):
+            pass
+
+        clCounter.ResetCounter()
+
+        if not self.clLoggingThreadStarted.is_set():
+            return False
+
+        return True
+
     # @Define   Start communication thread
     #
     # @Return   True : Success, False : Error
@@ -236,7 +314,7 @@ class TCP:
         self.iConnections = self.iConnections + 1
 
         return True
-    
+
     # @Define   Stop communication/acceptation thread(s)
     #
     # @Return   True : Success, False : Error
@@ -260,6 +338,27 @@ class TCP:
         if self.iConnections != 0:
             return False
 
+        return True
+
+    # @Define   Stop logging thread
+    #
+    # @Return   True : Success, False : Error
+    #
+    def StopLoggingThread(self):
+
+        self.clLoggingThreadStop.set()
+
+        clCounter = Counter()
+        clCounter.StartCounter()
+
+        while ((clCounter.GetCounterValue() < 3) and (not self.clLoggingThreadEnded.is_set())):
+            pass
+
+        clCounter.ResetCounter()
+
+        if not self.clLoggingThreadEnded.is_set():
+            return False
+        
         return True
 
     # @Define   Receive Data from HOST/SLAVE
@@ -291,6 +390,7 @@ class TCP:
         try:
             if bString:
                 Data = byData.decode("utf-8")
+                Data.replace("\r\n", "\n")
             else:
                 Data = struct.unpack("i", byData)[0]
         except:
@@ -314,6 +414,7 @@ class TCP:
         #Send data has bytes
         try:
             if bString:
+                Data.replace("\n", "\r\n")
                 clSocket.send(Data.encode("utf-8"))
                 return True
             else:
@@ -337,10 +438,32 @@ class TCP:
                 
                 #Create thread here
                 print("Connection accepted! Starting thread...")
-                self.StartCommunicationThread()
-                print("Number of threads : {0}\n".format(self.iConnections))
+                if self.StartCommunicationThread() :
+                    print("Number of threads : {0}\n".format(self.iConnections))
 
         return
+
+    # @Define   Logging thread definition
+    #
+    # @Note     This thread is only applicable
+    # @Note     Slave Side (only one logging thread)
+    #
+    def LoggingThread(self):
+
+        self.clLoggingThreadStarted.set()
+
+        while not self.clLoggingThreadStop.is_set():
+
+            byData = "".encode("utf-8")
+
+            try:
+                byData = self.clSlave_LogSocket.recv(self.MAXIMUM_PACKET_SIZE)
+            except:
+                continue
+
+            self.clLog.Write(byData, True)
+
+        self.clLoggingThreadEnded.set()
 
     # @Define   Communication thread definition
     #
@@ -349,8 +472,11 @@ class TCP:
     #
     def CommunicationThread(self):
 
-        clPeer_Socket = self.clPeer_Socket
-        sPeerIP = self.sPeerIP
+        #Initialize thread variables
+        self.clLocal.clPeer_Socket = self.clPeer_Socket
+        self.clLocal.clPeer_LogSocket = self.clPeer_LogSocket
+        self.clLocal.sPeerIP = self.sPeerIP
+        self.clLocal.bLogging = False
 
         sData = ""
         iData = 0
@@ -361,7 +487,7 @@ class TCP:
         #Main loop for thread
         while not self.clThreadStop.is_set():
 
-            iData = self.ReceiveData(clPeer_Socket, False)
+            iData = self.ReceiveData(self.clLocal.clPeer_Socket, False)
 
             #Disconnect
             if iData == 404:
@@ -369,17 +495,27 @@ class TCP:
                 break
 
             #Actions
-            if iData > 0:
+            if iData == 3:
                 #If fail clear the socket stream
-                self.Actions(clPeer_Socket, iData)
+                if self.Actions(iData):
+                    self.clLocal.bLogging = True
+
+            elif iData == 4:
+                #If fail clear the socket stream
+                if self.Actions(iData):
+                    self.clLocal.bLogging = False
+
+            elif iData > 0:
+                #If fail clear the socket stream
+                self.Actions(iData)
 
         #Thread forced to shutdown by host
         try:
-            clPeer_Socket.shutdown(SHUT_RDWR)
+            self.clLocal.clPeer_Socket.shutdown(SHUT_RDWR)
         except:
             print("Connection was already closed!")
         try:
-            clPeer_Socket.close()
+            self.clLocal.clPeer_Socket.close()
         except:
             print("Could not close correctly!")
 
@@ -391,7 +527,6 @@ class TCP:
 
     # @Define   Switch case for all possible actions
     #
-    # @Param    [in] clSocket : Socket on which action applies
     # @Param    [in] iData : Action to be executed
     # @Param    [in, opt.] sOptionA : First option
     # @Param    [in, opt.] sOptionB : Second option
@@ -401,22 +536,24 @@ class TCP:
     # @Note     clSocket is only required for hosts, use NULL (0) for slaves
     # @Note     Actions are avaible to all projects, make them generic
     #
-    def Actions(self, clSocket, iData, sOptionA = "", sOptionB = ""):
+    def Actions(self, iData, sOptionA = "", sOptionB = ""):
         
         switch_case = {
             1: self.SendFile,
             2: self.ReceiveFile,
+            3: self.StartLogging,
+            4: self.StopLogging
         }
 
         #If function fails, clear the socket stream
         #When function does not fail, it means no data is present in the stream
-        if not switch_case[iData](clSocket, sOptionA, sOptionB):
+        if not switch_case[iData](sOptionA, sOptionB):
             try:
                 #Host peer socket
                 if self.bTCPHost:
-                    byData = clSocket.recv(self.MAXIMUM_PACKET_SIZE)
+                    byData = self.clLocal.clPeer_Socket.recv(self.MAXIMUM_PACKET_SIZE)
                     while(len(byData)):
-                        byData = clSocket.recv(self.MAXIMUM_PACKET_SIZE)
+                        byData = self.clLocal.clPeer_Socket.recv(self.MAXIMUM_PACKET_SIZE)
                 #Slave socket
                 else:
                     byData = self.clSlave_Socket.recv(self.MAXIMUM_PACKET_SIZE)
@@ -428,16 +565,14 @@ class TCP:
 
     # @Define   Send a file to target destination from target location
     #
-    # @Param    [in] clSocket : Socket to receive file from
     # @Param    [in] sLocation : Location of the file
     # @Param    [in] sDestination : Destination of the file
     #
     # @Return   True : Success, False : Error   
     #
-    # @Note     clSocket is only required for hosts, use NULL (0) for slaves
     # @Note     SendFile is hardcoded in pair with ReceiveFile
     #
-    def SendFile(self, clSocket, sLocation, sDestination):
+    def SendFile(self, sLocation, sDestination):
 
         #Data variables
         sData = ""
@@ -448,13 +583,16 @@ class TCP:
         #Client initialisation
         if not self.bTCPHost:
             clSocket = self.clSlave_Socket
+            clLogSocket = self.clSlave_LogSocket
             self.SendData(clSocket, False, 2)
             sData = self.ReceiveData(clSocket, True)
             if not sData == "ACK":
                 return False
 
-        #Server response
+        #Server initialisation
         else:
+            clSocket = self.clLocal.clPeer_Socket
+            clLogSocket = self.clLocal.clPeer_LogSocket
             self.SendData(clSocket, True, "ACK")
 
         #Client action
@@ -505,16 +643,14 @@ class TCP:
 
     # @Define   Receive a file to target destination
     #
-    # @Param    [in] clSocket : Socket to receive file from
     # @Param    [in] sLocation : Location of the file
     # @Param    [in] sDestination : Destination of the file
     #
     # @Return   True : Success, False : Error
     #
-    # @Note     clSocket is only required for hosts, use NULL (0) for slaves
     # @Note     SendFile is hardcoded in pair with SendFile
     #
-    def ReceiveFile(self, clSocket, sLocation, sDestination):
+    def ReceiveFile(self, sLocation, sDestination):
 
         #Data variables
         sData = ""
@@ -530,13 +666,16 @@ class TCP:
         #Client initialisation
         if not self.bTCPHost:
             clSocket = self.clSlave_Socket
+            clLogSocket = self.clSlave_LogSocket
             self.SendData(clSocket, False, 1)
             sData = self.ReceiveData(clSocket, True)
             if not sData == "ACK":
                 return False
 
-        #Server response
+        #Server initialisation
         else:
+            clSocket = self.clLocal.clPeer_Socket
+            clLogSocket = self.clLocal.clPeer_LogSocket
             self.SendData(clSocket, True, "ACK")
 
         #Client action
@@ -589,5 +728,125 @@ class TCP:
 
         clFile.close()
         self.SendData(clSocket, True, "ACK")
+
+        return True
+
+    # @Define   Start logging prints
+    #
+    # @Param    [in] sLogFileName : Name of the log file
+    # @Param    [in] sLogFilePosition : Position of the log file
+    #
+    # @Return   True : Success, False : Error
+    #
+    def StartLogging(self, sLogFileName, sLogFilePosition):
+
+        #Data variables
+        sData = ""
+        iData = 0
+
+        print("Starting Logging")
+
+        #Client initialisation
+        if not self.bTCPHost:
+            clSocket = self.clSlave_Socket
+            clLogSocket = self.clSlave_LogSocket
+            self.SendData(clSocket, False, 2)
+            sData = self.ReceiveData(clSocket, True)
+            if not sData == "ACK":
+                return False
+
+        #Server initialisation
+        else:
+            clSocket = self.clLocal.clPeer_Socket
+            clLogSocket = self.clLocal.clPeer_LogSocket
+            self.SendData(clSocket, True, "ACK")
+
+        #Client action
+        if not self.bTCPHost:
+
+            #Start Log File
+            if not self.clLog.FileSetup(sLogFileName, sLogFilePosition, True):
+                self.SendData(clSocket, True, "NACK")
+
+            #Start LoggingThread
+            if not self.StartLoggingThread(clSocket):
+                self.SendData(clSocket, True, "NACK")
+                self.clLog.FileClose()
+
+            #Let host know we succeeded
+            self.SendData(clSocket, True, "ACK")
+
+        #Server action
+        else:
+
+            #Make sure slave initiated correctly
+            sData = self.ReceiveData(clSocket, True)
+            if not sData == "ACK":
+                return False
+
+            #Nothing else to do, the variable is set in CommunicationThread
+
+        return True
+
+    # @Define   Stop logging prints
+    #
+    # @Param    [in] sNotUsed_A : Not used
+    # @Param    [in] sNotUsed_B : Not used
+    #
+    # @Return   True : Success, False : Error
+    #
+    def StopLogging(self, sNotUsed_A, sNotUsed_B):
+
+        #Data variables
+        sData = ""
+        iData = 0
+
+        print("Stopping Logging")
+
+        #Client initialisation
+        if not self.bTCPHost:
+            clSocket = self.clSlave_Socket
+            clLogSocket = self.clSlave_LogSocket
+            self.SendData(clSocket, False, 2)
+            sData = self.ReceiveData(clSocket, True)
+            if not sData == "ACK":
+                return False
+
+        #Server initialisation
+        else:
+            clSocket = self.clLocal.clPeer_Socket
+            clLogSocket = self.clLocal.clPeer_LogSocket
+            self.SendData(clSocket, True, "ACK")
+
+        #Client action
+        if not self.bTCPHost:
+
+            #Stop LoggingThread
+            if not self.StopLoggingThread():
+                self.SendData(clSocket, True, "NACK")
+                return False
+
+            #Archive Log File
+            if not self.clLog.ArchiveFile():
+                self.SendData(clSocket, True, "NACK")
+                return False
+
+            #Close Log File
+            if not self.clLog.FileClose():
+                self.SendData(clSocket, True, "NACK")
+                return False
+
+            #Let host know we succeeded
+            self.SendData(clSocket, True, "ACK")
+
+        #Server action
+        else:
+
+            #Make sure slave initiated correctly
+            sData = self.ReceiveData(clSocket, True)
+            if not sData == "ACK":
+                return False
+
+            #Nothing else to do, variable unset in CommunicationThread
 
         return True

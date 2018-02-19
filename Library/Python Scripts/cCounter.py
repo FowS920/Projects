@@ -1,3 +1,4 @@
+#TODO : Do not import has *
 from time import *
 from threading import *
 
@@ -94,4 +95,36 @@ class Counter:
 
         self.clThreadEnded.set()
 
-        
+    # @Define   Create a string out of the current time and returns it
+    #
+    # @Param    [in] bBinary : True to return a binary string, false to return a string
+    #
+    # @Return   The time in string or binary depending on parameter bBinary
+    #
+    # @Note     Example of time : 15h38m16s
+    #
+    def GetTime(self, bBinary):
+
+        sTime = strftime("%Hh%Mm%Ss", localtime())
+
+        if bBinary:
+            return sTime.encode("utf-8")
+        else:
+            return sTime
+
+    # @Define   Create a string out of the current date and returns it
+    #
+    # @Param    [in] bBinary : True to return a binary string, false to return a string
+    #
+    # @Return   The date in string or binary depending on parameter bBinary
+    #
+    # @Note     Example of date : 12-Sept-2018
+    #
+    def GetDate(self, bBinary):
+
+        sDate = strftime("%d-%b-%Y", localtime())
+
+        if bBinary:
+            return sDate.encode("utf-8")
+        else:
+            return sDate

@@ -26,6 +26,7 @@
     <Compile Include="cDisplay.py" />
     <Compile Include="cLCD.py" />
     <Compile Include="cSPI.py" />
+    <Compile Include="gProjectSettings.py" />
     <Compile Include="KEK420_Connect.py" />
     <Compile Include="KEK420_Server.py" />
     <Compile Include="KEK420_Utilities.py" />

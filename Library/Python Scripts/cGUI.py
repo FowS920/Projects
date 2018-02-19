@@ -1,5 +1,8 @@
-from tkinter import *
 from cTCP import *
+
+#TODO : Do not import has *
+from tkinter import *
+
 
 # @Define   Graphical User Interface (GUI) to connect to a server
 #
@@ -80,6 +83,8 @@ class GUI_Client(Frame) :
         self.Connected_Options_Listbox_Actions = Listbox(self, selectmode = BROWSE)
         self.Connected_Options_Listbox_Actions.insert(END, "Send File")
         self.Connected_Options_Listbox_Actions.insert(END, "Receive File")
+        self.Connected_Options_Listbox_Actions.insert(END, "Start Logging")
+        self.Connected_Options_Listbox_Actions.insert(END, "Stop Logging")
         self.Connected_Options_Listbox_Actions.config(activestyle = "none")
         self.Connected_Options_Listbox_Actions.bind("<<ListboxSelect>>", self.Options)
         self.Connected_Options_Listbox_Actions.pack(fill = BOTH)
@@ -110,13 +115,13 @@ class GUI_Client(Frame) :
         self.File_Argument_Options = PanedWindow(self, orient = VERTICAL)
 
         self.File_Arguments_Options_Text_A = Label(self)
-        self.File_Arguments_Options_Text_A["text"] = "File location on Host/Slave : "
+        self.File_Arguments_Options_Text_A["text"] = "File location on local computer (Sending) / remote computer (Receiving) : "
         self.File_Arguments_Options_Text_A.pack(side = "left")
         self.File_Arguments_Options_Entry_A = Entry(self, width = 100)
         self.File_Arguments_Options_Entry_A.pack()
 
         self.File_Arguments_Options_Text_B = Label(self)
-        self.File_Arguments_Options_Text_B["text"] = "File destination on Slave/Host : "
+        self.File_Arguments_Options_Text_B["text"] = "File destination on remote computer (Receiving) / local computer (Sending) : "
         self.File_Arguments_Options_Text_B.pack(side = "left")
         self.File_Arguments_Options_Entry_B = Entry(self, width = 100)
         self.File_Arguments_Options_Entry_B.pack()
@@ -130,6 +135,32 @@ class GUI_Client(Frame) :
         self.File_Argument_Options.paneconfigure(self.File_Arguments_Options_Text_B, minsize = 30)
         self.File_Argument_Options.add(self.File_Arguments_Options_Entry_B)
         self.File_Argument_Options.paneconfigure(self.File_Arguments_Options_Entry_B, minsize = 30)
+
+        #4th PanedWindow definitions
+        self.Logging_Argument_Options = PanedWindow(self, orient = VERTICAL)
+
+        self.Logging_Arguments_Options_Text_A = Label(self)
+        self.Logging_Arguments_Options_Text_A["text"] = "File name : "
+        self.Logging_Arguments_Options_Text_A.pack(side = "left")
+        self.Logging_Arguments_Options_Entry_A = Entry(self, width = 100)
+        self.Logging_Arguments_Options_Entry_A.pack()
+
+        self.Logging_Arguments_Options_Text_B = Label(self)
+        self.Logging_Arguments_Options_Text_B["text"] = "File location : "
+        self.Logging_Arguments_Options_Text_B.pack(side = "left")
+        self.Logging_Arguments_Options_Entry_B = Entry(self, width = 100)
+        self.Logging_Arguments_Options_Entry_B.pack()
+
+        #4th Paned window end (adds)
+        self.Logging_Argument_Options.add(self.Logging_Arguments_Options_Text_A)
+        self.Logging_Argument_Options.paneconfigure(self.Logging_Arguments_Options_Text_A, minsize = 30)
+        self.Logging_Argument_Options.add(self.Logging_Arguments_Options_Entry_A)
+        self.Logging_Argument_Options.paneconfigure(self.Logging_Arguments_Options_Entry_A, minsize = 30)
+
+        self.Logging_Argument_Options.add(self.Logging_Arguments_Options_Text_B)
+        self.Logging_Argument_Options.paneconfigure(self.Logging_Arguments_Options_Text_B, minsize = 30)
+        self.Logging_Argument_Options.add(self.Logging_Arguments_Options_Entry_B)
+        self.Logging_Argument_Options.paneconfigure(self.Logging_Arguments_Options_Entry_B, minsize = 30)
 
         #Main frame setup end (adds and pack)
         self.Upper_Lair.add(self.IP_Menu)
@@ -187,6 +218,7 @@ class GUI_Client(Frame) :
                 return False
 
             self.Lower_Lair.forget(self.File_Argument_Options)
+            self.Lower_Lair.forget(self.Logging_Argument_Options)
             self.Lower_Lair.pack()
             self.Upper_Lair.forget(self.Connected_Options)
             self.Upper_Lair.pack()
@@ -199,8 +231,6 @@ class GUI_Client(Frame) :
         return True
 
     # @Define   Execute the selected action
-    #
-    # @TODO
     #
     def Execute(self, event):
 
@@ -219,16 +249,35 @@ class GUI_Client(Frame) :
                 print("Bad input!\n")
                 return False
 
+        if sAction == "Start Logging":
+            sLogFileName = self.Logging_Arguments_Options_Entry_A.get()
+            sLogFilePosition = self.Logging_Arguments_Options_Entry_B.get()
+
+            #Bad input
+            if sLogFileName == "" or sLogFilePosition == "":
+                print("Bad input!\n")
+                return False
+
         print("{0}{1}{2}".format("Executing the following action : ", sAction, "...\n"))
 
         if sAction == "Send File":
 
-            self.clTCP.Actions(0, 1, sLocation, sDestination)
+            self.clTCP.Actions(1, sLocation, sDestination)
             return True
 
         elif sAction == "Receive File":
 
-            self.clTCP.Actions(0, 2, sLocation, sDestination)
+            self.clTCP.Actions(2, sLocation, sDestination)
+            return True
+
+        elif sAction == "Start Logging":
+
+            self.clTCP.Actions(3, sLogFileName, sLogFilePosition)
+            return True
+
+        elif sAction == "Stop Logging":
+
+            self.clTCP.Actions(4)
             return True
 
         #Execute method(s) called here
@@ -245,18 +294,19 @@ class GUI_Client(Frame) :
 
     # @Define   Update option(s) screen depending on action selection
     #
-    # @TODO
-    #
     def Options(self, event):
 
         try:
 
             self.sSelected_Action = self.Connected_Options_Listbox_Actions.get(self.Connected_Options_Listbox_Actions.curselection())
 
+            self.Lower_Lair.forget(self.File_Argument_Options)
+            self.Lower_Lair.forget(self.Logging_Argument_Options)
+
         except:
 
-            self.Lower_Lair.forget(self.File_Argument_Options)
             self.Lower_Lair.pack()
+
             return
 
         if self.sSelected_Action == "Send File":
@@ -269,9 +319,19 @@ class GUI_Client(Frame) :
             self.Lower_Lair.add(self.File_Argument_Options)
             self.Lower_Lair.pack()
         
+        elif self.sSelected_Action == "Start Logging":
+
+            self.Lower_Lair.add(self.Logging_Argument_Options)
+            self.Lower_Lair.pack()
+
+        elif self.sSelected_Action == "Stop Logging":
+
+            self.Lower_Lair.pack()
+
         else:
 
             print("Option is not programmed!\n")
+            self.Lower_Lair.pack()
 
 # @Define   Graphical User Interface (GUI) to launch a server
 #

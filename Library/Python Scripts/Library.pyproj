@@ -6,8 +6,7 @@
     <ProjectHome>.</ProjectHome>
     <StartupFile>
     </StartupFile>
-    <SearchPath>
-    </SearchPath>
+    <SearchPath>..\..\KEK420\Python Scripts</SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>Library</Name>
@@ -24,7 +23,9 @@
   <ItemGroup>
     <Compile Include="cCounter.py" />
     <Compile Include="cGUI.py" />
+    <Compile Include="cLog.py" />
     <Compile Include="cTCP.py" />
+    <Compile Include="gSettings.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
