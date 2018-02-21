@@ -115,13 +115,13 @@ class GUI_Client(Frame) :
         self.File_Argument_Options = PanedWindow(self, orient = VERTICAL)
 
         self.File_Arguments_Options_Text_A = Label(self)
-        self.File_Arguments_Options_Text_A["text"] = "File location on local computer (Sending) / remote computer (Receiving) : "
+        self.File_Arguments_Options_Text_A["text"] = "File location on local computer : "
         self.File_Arguments_Options_Text_A.pack(side = "left")
         self.File_Arguments_Options_Entry_A = Entry(self, width = 100)
         self.File_Arguments_Options_Entry_A.pack()
 
         self.File_Arguments_Options_Text_B = Label(self)
-        self.File_Arguments_Options_Text_B["text"] = "File destination on remote computer (Receiving) / local computer (Sending) : "
+        self.File_Arguments_Options_Text_B["text"] = "File destination on remote computer : "
         self.File_Arguments_Options_Text_B.pack(side = "left")
         self.File_Arguments_Options_Entry_B = Entry(self, width = 100)
         self.File_Arguments_Options_Entry_B.pack()
@@ -240,9 +240,20 @@ class GUI_Client(Frame) :
         except:
             return False
 
-        if sAction == "Send File" or sAction == "Receive File":
+        if sAction == "Send File":
+
             sLocation = self.File_Arguments_Options_Entry_A.get()
             sDestination = self.File_Arguments_Options_Entry_B.get()
+
+            #Bad input
+            if sLocation == "" or sDestination == "":
+                print("Bad input!\n")
+                return False
+
+        if sAction == "Receive File":
+
+            sDestination = self.File_Arguments_Options_Entry_A.get()
+            sLocation = self.File_Arguments_Options_Entry_B.get()
 
             #Bad input
             if sLocation == "" or sDestination == "":
