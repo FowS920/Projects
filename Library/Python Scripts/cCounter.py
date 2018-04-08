@@ -1,3 +1,5 @@
+from gSettings import *
+
 #TODO : Do not import has *
 from time import *
 from threading import *

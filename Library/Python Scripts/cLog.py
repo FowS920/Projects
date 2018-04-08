@@ -1,3 +1,4 @@
+from gSettings import *
 from cCounter import *
 
 import shutil
@@ -44,10 +45,19 @@ class Log:
     #
     def FileSetup(self, sLogFileName, sLogFilePosition, bBinary):
 
+        #Add \\ to make sure we are inside the folder
+        sLogFilePosition += "\\"
+
         sLogFile = sLogFilePosition
         sLogFile += sLogFileName
 
-        #TODO : Check for viable sLogFile input
+        #Check if file position is valid
+        if not os.path.isdir(sLogFilePosition):
+            return False
+
+        #Check if file name is valid
+        if sLogFileName.count(".") != 1:
+            return False
 
         if not self.bFileOpen:
             try:

@@ -6,11 +6,15 @@
 #
 class SPI:
 
+    # @Define   Initialisation of the class
+    #
     def __init__(self):
 
         #TODO
         pass
 
+    # @Define   Destructor of the class
+    #
     def __del__(self):
 
         #TODO

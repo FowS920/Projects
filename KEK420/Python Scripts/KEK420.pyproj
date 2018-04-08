@@ -6,7 +6,7 @@
     <ProjectHome>
     </ProjectHome>
     <StartupFile>KEK420_Connect.py</StartupFile>
-    <SearchPath>..\..\Library\Python Scripts</SearchPath>
+    <SearchPath>..\..\Library\Python Scripts;..\..\Library\Python Scripts\__pycache__</SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>KEK420</Name>

@@ -1,3 +1,4 @@
+from gSettings import *
 from cTCP import *
 
 #TODO : Do not import has *
@@ -12,12 +13,12 @@ from tkinter import *
 class GUI_Client(Frame) :
 
     #Variables definition
-    bIsConnected = False
 
-    sSelected_IP = "10.0.10.?"
     sSelected_Action = "Action_?"
 
     clTCP = TCP(False)
+
+    bIsConnected = False
 
     # @Define   Initialisation of the class
     # @Define   Launch the GUI
@@ -29,6 +30,8 @@ class GUI_Client(Frame) :
         self.master = master
         self.pack()
         self.CreateWidgets()
+
+        self.bIsConnected = False
 
     # @Define   GUI frame definition and bindings
     #
@@ -83,8 +86,14 @@ class GUI_Client(Frame) :
         self.Connected_Options_Listbox_Actions = Listbox(self, selectmode = BROWSE)
         self.Connected_Options_Listbox_Actions.insert(END, "Send File")
         self.Connected_Options_Listbox_Actions.insert(END, "Receive File")
+        self.Connected_Options_Listbox_Actions.insert(END, "Setup Logging")
         self.Connected_Options_Listbox_Actions.insert(END, "Start Logging")
         self.Connected_Options_Listbox_Actions.insert(END, "Stop Logging")
+
+        #Add all user defined actions
+        for ACTIONS in ACTIONS_LIST:
+            self.Connected_Options_Listbox_Actions.insert(END, ACTIONS[0])
+
         self.Connected_Options_Listbox_Actions.config(activestyle = "none")
         self.Connected_Options_Listbox_Actions.bind("<<ListboxSelect>>", self.Options)
         self.Connected_Options_Listbox_Actions.pack(fill = BOTH)
@@ -182,19 +191,16 @@ class GUI_Client(Frame) :
 
             #IP selected from the list
             try:
-                self.sSelected_IP = self.IP_Menu_Listbox_IPs.get(self.IP_Menu_Listbox_IPs.curselection())
+                self.clTCP.sSelected_IP = self.IP_Menu_Listbox_IPs.get(self.IP_Menu_Listbox_IPs.curselection())
             except:
                 print("No IP selected!\n")
-                return False
-
-            #Connection method(s) called here
-            if not self.clTCP.Connect(self.sSelected_IP):
-                print("Could not connect properly!\n")
                 return False
 
             self.Upper_Lair.add(self.Connected_Options)
             self.Upper_Lair.paneconfigure(self.Connected_Options, minsize = 300)
             self.Upper_Lair.pack()
+            self.Lower_Lair.pack()
+
             self.bIsConnected = True
 
         #If we are connected
@@ -209,19 +215,17 @@ class GUI_Client(Frame) :
     #
     def Disconnect(self, event):
 
+        self.clTCP.sSelected_IP = ""
+
         #If we are connected
         if self.bIsConnected:
-
-            #Disconnection method(s) called here
-            if not self.clTCP.Disconnect():
-                print("Could not disconnect properly!\n")
-                return False
 
             self.Lower_Lair.forget(self.File_Argument_Options)
             self.Lower_Lair.forget(self.Logging_Argument_Options)
             self.Lower_Lair.pack()
             self.Upper_Lair.forget(self.Connected_Options)
             self.Upper_Lair.pack()
+
             self.bIsConnected = False
 
         #If we are not connected
@@ -238,7 +242,10 @@ class GUI_Client(Frame) :
         try:
             sAction = self.Connected_Options_Listbox_Actions.get(self.Connected_Options_Listbox_Actions.curselection())
         except:
-            return False
+            if self.sSelected_Action == "Action_?":
+                return False
+            else:
+                sAction = self.sSelected_Action
 
         if sAction == "Send File":
 
@@ -247,7 +254,7 @@ class GUI_Client(Frame) :
 
             #Bad input
             if sLocation == "" or sDestination == "":
-                print("Bad input!\n")
+                self.clTCP.PrintTCP("Bad input!\n")
                 return False
 
         if sAction == "Receive File":
@@ -260,38 +267,41 @@ class GUI_Client(Frame) :
                 print("Bad input!\n")
                 return False
 
-        if sAction == "Start Logging":
+        if sAction == "Setup Logging":
             sLogFileName = self.Logging_Arguments_Options_Entry_A.get()
             sLogFilePosition = self.Logging_Arguments_Options_Entry_B.get()
 
             #Bad input
             if sLogFileName == "" or sLogFilePosition == "":
-                print("Bad input!\n")
+                self.clTCP.PrintTCP("Bad input!\n")
                 return False
 
-        print("{0}{1}{2}".format("Executing the following action : ", sAction, "...\n"))
-
-        if sAction == "Send File":
-
-            self.clTCP.Actions(1, sLocation, sDestination)
-            return True
-
-        elif sAction == "Receive File":
-
-            self.clTCP.Actions(2, sLocation, sDestination)
-            return True
-
-        elif sAction == "Start Logging":
-
-            self.clTCP.Actions(3, sLogFileName, sLogFilePosition)
-            return True
-
-        elif sAction == "Stop Logging":
-
-            self.clTCP.Actions(4)
-            return True
+        self.clTCP.PrintTCP("{0}{1}{2}".format("Executing the following action : ", sAction, " : \n"))
 
         #Execute method(s) called here
+        if sAction == "Send File":
+            return self.clTCP.Actions(1, sLocation, sDestination)
+
+        elif sAction == "Receive File":
+            return self.clTCP.Actions(2, sLocation, sDestination)
+
+        elif sAction == "Setup Logging":
+            return self.clTCP.SetupLogging(sLogFileName, sLogFilePosition)
+
+        elif sAction == "Start Logging":
+            return self.clTCP.StartLogging()
+
+        elif sAction == "Stop Logging":
+            return self.clTCP.StopLogging()
+
+        else:
+            try:
+                for ACTIONS in ACTIONS_LIST:
+                    if ACTIONS[0] == sAction:
+                        getattr(sys.modules[__name__], "%s" % (ACTIONS[0]))(self.clTCP)
+            except:
+                self.clTCP.PrintTCP("\nCould not find action %s!\n\n" % (sAction))
+
         return False
 
     # @Define   Cancel the selected action
@@ -307,41 +317,30 @@ class GUI_Client(Frame) :
     #
     def Options(self, event):
 
+        #Get selected action
         try:
-
             self.sSelected_Action = self.Connected_Options_Listbox_Actions.get(self.Connected_Options_Listbox_Actions.curselection())
-
             self.Lower_Lair.forget(self.File_Argument_Options)
             self.Lower_Lair.forget(self.Logging_Argument_Options)
-
         except:
-
             self.Lower_Lair.pack()
-
             return
 
+        #Pack GUI depending on action selected
         if self.sSelected_Action == "Send File":
-
             self.Lower_Lair.add(self.File_Argument_Options)
-            self.Lower_Lair.pack()
-                
+            self.Lower_Lair.pack()         
         elif self.sSelected_Action == "Receive File":
-
             self.Lower_Lair.add(self.File_Argument_Options)
             self.Lower_Lair.pack()
-        
-        elif self.sSelected_Action == "Start Logging":
-
+        elif self.sSelected_Action == "Setup Logging":
             self.Lower_Lair.add(self.Logging_Argument_Options)
             self.Lower_Lair.pack()
-
-        elif self.sSelected_Action == "Stop Logging":
-
+        elif self.sSelected_Action == "Start Logging":
             self.Lower_Lair.pack()
-
+        elif self.sSelected_Action == "Stop Logging":
+            self.Lower_Lair.pack()
         else:
-
-            print("Option is not programmed!\n")
             self.Lower_Lair.pack()
 
 # @Define   Graphical User Interface (GUI) to launch a server
