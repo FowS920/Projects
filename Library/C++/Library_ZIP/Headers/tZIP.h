@@ -1,5 +1,6 @@
-#include <windef.h>
+#include <windows.h>
 
+#ifndef __LIBRARY_TZIP_
 typedef union
 {
 	BYTE v[540];
@@ -10,7 +11,7 @@ typedef union
 		BYTE GENERAL_PURPOSE_BIT_FLAG[2];		/**< General purpose bit flag */
 		BYTE COMPRESSION_METHOD[2];				/**< Compression method */
 		BYTE FILE_LAST_MODIFICATION_TIME[2];	/**< File last modification time */
-		BYTE FILE_LAST_MODICATION_DATE[2];		/**< File last modification date */
+		BYTE FILE_LAST_MODIFICATION_DATE[2];	/**< File last modification date */
 		BYTE CRC32[4];							/**< CRC - 32 */
 		BYTE COMPRESSED_SIZE[4];				/**< Compressed size */
 		BYTE UNCOMPRESSED_SIZE[4];				/**< Uncompressed size */
@@ -77,3 +78,8 @@ typedef union
 		BYTE COMMENT[255];											/**< Comment (length n) */
 	} f;
 } END_OF_CENTRAL_DIRECTORY_RECORD, *PEND_OF_CENTRAL_DIRECTORY_RECORD;
+#endif
+
+#ifndef __LIBRARY_TZIP_
+#define __LIBRARY_TZIP_
+#endif

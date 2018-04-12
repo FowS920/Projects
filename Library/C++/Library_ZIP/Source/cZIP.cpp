@@ -2,8 +2,86 @@
 
 #include "cZIP.h"
 
-#define SUCCESS	0x0000;
-#define ERROR	0x0001;
+// TODO : Define more errors type
+#define ZIP_SUCCESS	0x0000;
+#define ZIP_ERROR	0x0001;
+
+/**
+ * @brief	Class constructor
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ */
+
+cZIP::cZIP()
+{
+
+}
+
+/**
+ * @brief	Class constructor (Also zip directory to memory)
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in] sDirectory : Path to directory or file to zip into memory
+ *
+ * @note	Use GetDidZipFail() to confirm zipping worked
+ *
+ */
+
+cZIP::cZIP(std::string sDirectory)
+{
+	m_bZippingFailed = ZipToMemory(sDirectory);
+}
+
+/**
+ * @brief	Class constructor (Also zip directory to file)
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] sDestination : Path to directory with file name to zip into memory
+ * @param	[in,opt] bFlush : TRUE -> Flush memory data after zipping / FALSE -> Do not flush memory data after zipping
+ *
+ * @note	Use GetDidZipFail() to confirm zipping worked
+ *
+ */
+
+cZIP::cZIP(std::string sDirectory, std::string sDestination, const BOOL bFlush)
+{
+	m_bZippingFailed = ZipToFile(sDirectory, sDestination, bFlush);
+}
+
+/**
+ * @brief	Class destructor
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ */
+
+cZIP::~cZIP()
+{
+	FlushMemory();
+}
+
+/**
+ * @brief	ZIP directory or file to memory
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in] sDirectory : Path to directory or file to zip into memory
+ *
+ * @return	SUCCESS : 0
+ * @return	ERROR : 1
+ *
+ * @note	m_vZippedData variable is where the ZIP is stored
+ *
+ */
 
 DWORD cZIP::ZipToMemory(std::string sDirectory)
 {
@@ -11,52 +89,57 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
 	DWORD dwOffsetStartCentralDirectory;
 
 	// Reset memory
-	m_bZippedDataInMemory = FALSE;
-	m_sStoredDirectoryZip = "";
-	m_vZippedData.clear();
-	m_wNumberOfCentralDirectories = 0;
+	FlushMemory();
 
 	// Swap all / to \\ in case (we use \\ for coding and / for storing)
-	std::replace(sDirectory.begin(), sDirectory.end(), "/", "\\");
+	std::replace(sDirectory.begin(), sDirectory.end(), '/', '\\');
 
 	// Make sure directory has no double backslash ("\\\\") except for drive
 	if (sDirectory.find(":\\\\") != std::string::npos)
 	{
-		if (sDirectory.substr(sDirectory.find(":\\\\") + 2).find("\\\\") != std::string::npos)
-			return ERROR;
+		if (sDirectory.substr(sDirectory.find(":\\\\") + 1).find("\\\\") != std::string::npos)
+			return ZIP_ERROR;
 	}
 	else
 	{
 		if (sDirectory.find("\\\\") != std::string::npos)
-			return ERROR;
+			return ZIP_ERROR;
 	}
 
 	// Make sure directory (or file) exists
 	{
 		HANDLE hFile;
 
-		PWIN32_FIND_DATA tPWIN32_FIND_DATA;
+		WIN32_FIND_DATA tWIN32_FIND_DATA;
 
-		hFile = FindFirstFile(sDirectory.c_str(), tPWIN32_FIND_DATA);
+		hFile = FindFirstFile(sDirectory.c_str(), &tWIN32_FIND_DATA);
 
 		if (hFile == INVALID_HANDLE_VALUE)
-			return ERROR;
+			return ZIP_ERROR;
 
-		m_bFile = !(FILE_ATTRIBUTE_DIRECTORY == tPWIN32_FIND_DATA->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+		m_bFile = !(FILE_ATTRIBUTE_DIRECTORY == (tWIN32_FIND_DATA.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY));
 	}
 
 	// Call ZIP function
 	{
 		std::vector<BYTE> vCentralHeaderData;
 	
-		if (ZIP(m_vZippedData, vCentralHeaderData, sDirectory, sDirectory.rfind("\\") + 2, m_bFile))
+		// Try to catch bad_allocation (when resizing vectors)
+		try
+		{
+			if (ZIP(m_vZippedData, vCentralHeaderData, sDirectory, sDirectory.rfind("\\") + 1, m_bFile))
+			{
+				// Reset memory
+				FlushMemory();
+				return ZIP_ERROR;
+			}
+		}
+		// We did not have enough space to allocate correctly the data
+		catch (std::bad_alloc &e)
 		{
 			// Reset memory
-			m_bZippedDataInMemory = FALSE;
-			m_sStoredDirectoryZip = "";
-			m_vZippedData.clear();
-			m_wNumberOfCentralDirectories = 0;
-			return ERROR;
+			FlushMemory();
+			return ZIP_ERROR;
 		}
 
 		dwSizeOfCentralDirectory = vCentralHeaderData.size();
@@ -71,31 +154,105 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
 
 	m_sStoredDirectoryZip = sDirectory;
 	m_bZippedDataInMemory = TRUE;
+
+	return ZIP_SUCCESS;
 }
 
-DWORD cZIP::ZipToFile(std::string sDirectory, std::string sDestination)
+/**
+ * @brief	ZIP directory or file to a .zip file
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] sDestination : Path to directory with file name to zip into memory
+ * @param	[in,opt] bFlush : TRUE -> Flush memory data after zipping / FALSE -> Do not flush memory data after zipping
+ *
+ * @return	SUCCESS : 0
+ * @return	ERROR : 1
+ *
+ * @note	m_vZippedData variable is where the ZIP is stored (not flushed!)
+ * @note	sDestination file name must have no extention or .zip has an extension
+ */
+
+DWORD cZIP::ZipToFile(std::string sDirectory, std::string sDestination, const BOOL bFlush)
 {
-	// TODO : Check if destination is valid
-	{
-	
-	}
+	HANDLE hOpenedFile;
 
+	// Make sure destination exists
+	hOpenedFile = CreateFile(
+		sDestination.c_str(),
+		GENERIC_WRITE,
+		FILE_SHARE_READ,
+		NULL,
+		CREATE_NEW,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL
+	);
+
+	if (hOpenedFile == INVALID_HANDLE_VALUE)
+		return ZIP_ERROR;
+
+	// If already zipped don't rezip
 	if (!(m_bZippedDataInMemory && (m_sStoredDirectoryZip == sDirectory)))
-		if (ZipToMemory(sDestination))
-			return ERROR;
+		// Zip to memory
+		if (ZipToMemory(sDirectory))
+		{
+			CloseHandle(hOpenedFile);
+			remove(sDestination.c_str());
+			return ZIP_ERROR;
+		}
 
-	// TODO : Write to file
-	{
-	
-	}
+	// Write to file
+	WriteFile(hOpenedFile, m_vZippedData.data(), m_vZippedData.size(), NULL, NULL);
+
+	CloseHandle(hOpenedFile);
+
+	if (bFlush)
+		FlushMemory();
+
+	return ZIP_SUCCESS;
 }
 
-DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeaderData, std::string sDirectory, DWORD dwInitialDirectoryLength, BOOL bFile)
+/**
+ * @brief	Flush internal memory allocated
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ */
+void cZIP::FlushMemory()
+{
+	m_bFile = FALSE;
+	m_bZippedDataInMemory = FALSE;
+	m_sStoredDirectoryZip = "";
+	m_vZippedData.clear();
+	m_wNumberOfCentralDirectories = 0;
+}
+
+/**
+ * @brief	Recursive function used to ZIP data into memory
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in,out] vZippedData : Buffer where headers and data is stored
+ * @param	[in,out] vCentralHeaderData : Buffer where central header data is stored
+ * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] dwInitialDirectoryLength : Length of initial directory path that is not to be zipped
+ * @param	[in] bFile : TRUE if we are zipping a file, FALSE if we are zipping a directory
+ *
+ * @return	SUCCESS : 0
+ * @return	ERROR : 1
+ *
+ */
+
+DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeaderData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const BOOL bFile)
 {
 	HANDLE hFile;
 	HANDLE hOpenedFile;
 
-	PWIN32_FIND_DATA tPWIN32_FIND_DATA;
+	WIN32_FIND_DATA tWIN32_FIND_DATA;
 
 	std::string sFileName;
 	std::string sFile;
@@ -108,36 +265,39 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 	else
 		sSearchDirectory = sDirectory + "\\*";
 
-	hFile = FindFirstFile(sSearchDirectory.c_str(), tPWIN32_FIND_DATA);
+	hFile = FindFirstFile(sSearchDirectory.c_str(), &tWIN32_FIND_DATA);
 
 	if (hFile == INVALID_HANDLE_VALUE)
-		return ERROR;
+		return ZIP_ERROR;
 
 	do
 	{
-		sFileName = tPWIN32_FIND_DATA->cFileName;
+		sFileName = tWIN32_FIND_DATA.cFileName;
 
 		// We don't want to add DOS files (. and ..)
-		if ((sFileName.find(".") != std::string::npos) || (sFileName.find("..") != std::string::npos))
+		if ((sFileName == ".") || (sFileName == ".."))
 		{
 			continue;
 		}
 		// We found a directory (go deeper)
-		else if (FILE_ATTRIBUTE_DIRECTORY == (tPWIN32_FIND_DATA->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		else if (FILE_ATTRIBUTE_DIRECTORY == (tWIN32_FIND_DATA.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 		{
 			DWORD dwOffsetLocalHeader;
 
-			sNewDirectory = sDirectory + "\\" + tPWIN32_FIND_DATA->cFileName;
+			sNewDirectory = sDirectory + "\\" + tWIN32_FIND_DATA.cFileName;
 
 			// Add to header
 			dwOffsetLocalHeader = vZippedData.size();
 
-			AllocateLocalFileHeader(vZippedData, sNewDirectory + "\\", dwInitialDirectoryLength, tPWIN32_FIND_DATA);
+			AllocateLocalFileHeader(vZippedData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0000, 0x00000000, 0x00000000, 0x00000000);
 		  //AllocateDataDescriptor(vZippedData, 0x00000000, 0x00000000, 0x00000000);
-			AllocateCentralDirectoryFileHeader(vCentralHeaderData, sNewDirectory + "\\", dwInitialDirectoryLength, tPWIN32_FIND_DATA, 0x00000000, 0x00000000, 0x00000000, dwOffsetLocalHeader);
+			AllocateCentralDirectoryFileHeader(vCentralHeaderData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0000, 0x00000000, 0x00000000, 0x00000000, dwOffsetLocalHeader);
 
 			if (ZIP(vZippedData, vCentralHeaderData, sNewDirectory, dwInitialDirectoryLength, FALSE))
-				return ERROR;
+			{
+				FindClose(hFile);
+				return ZIP_ERROR;
+			}
 		}
 		// We found a file (zip it)
 		else
@@ -153,9 +313,11 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 
 			dwOffsetLocalHeader = vZippedData.size();
 
-			AllocateLocalFileHeader(vZippedData, sDirectory, dwInitialDirectoryLength, tPWIN32_FIND_DATA);
+			// File can be up to DWORD file size
+			if (tWIN32_FIND_DATA.nFileSizeHigh != 0)
+				return ZIP_ERROR;
 
-			dwUncompressedSize = tPWIN32_FIND_DATA->nFileSizeHigh * (MAXDWORD + 1) + tPWIN32_FIND_DATA->nFileSizeLow;
+			dwUncompressedSize = tWIN32_FIND_DATA.nFileSizeLow;
 			dwCompressedSize = compressBound(dwUncompressedSize);
 
 			byCompressedBuffer.resize(dwCompressedSize);
@@ -165,12 +327,15 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 				byUncompressedBuffer.resize(dwUncompressedSize);
 
 				// Read file to buffer
-				sFile = sDirectory + "\\" + tPWIN32_FIND_DATA->cFileName;
+				if (m_bFile)
+					sFile = sDirectory;
+				else
+					sFile = sDirectory + "\\" + tWIN32_FIND_DATA.cFileName;
 
 				hOpenedFile = CreateFile(
 					sFile.c_str(),
-					GENERIC_READ | GENERIC_WRITE,
-					FILE_SHARE_READ,
+					GENERIC_READ,
+					FILE_SHARE_READ | FILE_SHARE_WRITE,
 					NULL,
 					OPEN_EXISTING,
 					FILE_ATTRIBUTE_NORMAL,
@@ -178,155 +343,264 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 				);
 
 				if (hOpenedFile == INVALID_HANDLE_VALUE)
-					return ERROR;
+					return ZIP_ERROR;
 
-				BYTE* pbyData;
-				pbyData = byUncompressedBuffer.data();
+				ReadFile(hOpenedFile, byUncompressedBuffer.data(), dwUncompressedSize, NULL, NULL);
 
-				do
-				{
-					ReadFile(hOpenedFile, pbyData, 1024, &dwNumberOfBytesRead, NULL);
-					pbyData += dwNumberOfBytesRead;
-				} while (dwNumberOfBytesRead == 1024);
+				CloseHandle(hOpenedFile);
 
 				dwCRC32 = crc32(0L, Z_NULL, 0);
 				dwCRC32 = crc32(dwCRC32, byUncompressedBuffer.data(), dwUncompressedSize);
 
-				compress(byCompressedBuffer.data(), &dwCompressedSize, byUncompressedBuffer.data(), dwUncompressedSize);
+				compressRAW(byCompressedBuffer.data(), &dwCompressedSize, byUncompressedBuffer.data(), dwUncompressedSize, 5);
 			}
+
+			AllocateLocalFileHeader(vZippedData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0008, dwCRC32, dwCompressedSize, dwUncompressedSize);
 
 			// Copy to memory
 			vZippedData.resize(vZippedData.size() + dwCompressedSize);
 			memcpy(vZippedData.data() + vZippedData.size() - dwCompressedSize, byCompressedBuffer.data(), dwCompressedSize);
 
 		  //AllocateDataDescriptor(vZippedData, dwCRC32, dwCompressedSize, dwUncompressedSize);
-			AllocateCentralDirectoryFileHeader(vCentralHeaderData, sDirectory, dwInitialDirectoryLength, tPWIN32_FIND_DATA, dwCRC32, dwCompressedSize, dwUncompressedSize, dwOffsetLocalHeader);
+			AllocateCentralDirectoryFileHeader(vCentralHeaderData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0008, dwCRC32, dwCompressedSize, dwUncompressedSize, dwOffsetLocalHeader);
 		}
-	} while (FindNextFile(hFile, tPWIN32_FIND_DATA));
+	} while (FindNextFile(hFile, &tWIN32_FIND_DATA));
+
+	FindClose(hFile);
 
 	if (GetLastError() != ERROR_NO_MORE_FILES)
-		return ERROR;
+		return ZIP_ERROR;
 
-	return SUCCESS;
+	return ZIP_SUCCESS;
 }
 
-void cZIP::AllocateLocalFileHeader(std::vector<BYTE> &vZippedData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA)
+/**
+ * @brief	Allocate local file header to buffer
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in,out] vZippedData : Buffer where local file header is stored
+ * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] dwInitialDirectoryLength : Length of initial directory path that is not to be zipped
+ * @param	[in] tPWIN32_FIND_DATA : File's information structure
+ * @param	[in] wCompressionMethod : Compression method used
+ * @param	[in] dwCRC32 : CRC-32 of the uncompressed buffer
+ * @param	[in] dwCompressedSize : Size of the compressed buffer
+ * @param	[in] dwUncompressedSize : Size of the uncompressed buffer
+ *
+ */
+
+void cZIP::AllocateLocalFileHeader(std::vector<BYTE> &vZippedData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA, const WORD wCompressionMethod, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize)
 {
 	// Initialize to '\0'
 	LOCAL_FILE_HEADER tLOCAL_FILE_HEADER = { '\0' };
 
-	std::string sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName;
-	std::replace(sFile.begin(), sFile.end(), "\\", "/");
+	std::string sFile;
 
-	memcpy(tLOCAL_FILE_HEADER.f.LOCAL_FILE_HEADER_SIGNATURE, "\x50\x4b\x03\x04", 4);	/**< SIGNATURE - LITTLE_ENDIAN */
-	memcpy(tLOCAL_FILE_HEADER.f.VERSION_NEEDED_TO_EXTRACT, "\x00\x14", 2);				/**< VERSION 20 */
-  //memcpy(tLOCAL_FILE_HEADER.f.GENERAL_PURPOSE_BIT_FLAG, "\x00\x00", 2);				/**< UNUSED */
-	memcpy(tLOCAL_FILE_HEADER.f.COMPRESSION_METHOD, "\x00\x08", 2);						/**< DEFLATE */
-	memcpy(tLOCAL_FILE_HEADER.f.FILE_LAST_MODIFICATION_TIME, "\x00\x00", 2);			/**< TODO - IMPORTANT! */
-	memcpy(tLOCAL_FILE_HEADER.f.FILE_LAST_MODICATION_DATE, "\x00\x00", 2);				/**< TODO - IMPORTANT! */
-  //memcpy(tLOCAL_FILE_HEADER.f.CRC32, "\x00\x00", 4);									/**< UNUSED */
-  //memcpy(tLOCAL_FILE_HEADER.f.COMPRESSED_SIZE, "\x00\x00\x00\x00", 4);				/**< UNUSED */
-  //memcpy(tLOCAL_FILE_HEADER.f.UNCOMPRESSED_SIZE, "\x00\x00\x00", 4);					/**< UNUSED */
+	SYSTEMTIME tSYSTEMTIME;
+	WORD wLastModificationDate;
+	WORD wLastModificationTime;
 
-	tLOCAL_FILE_HEADER.f.FILE_NAME_LENGTH[0] = (BYTE) sFile.size() >> 8;				/**< FILE SIZE (HIGH) */
-	tLOCAL_FILE_HEADER.f.FILE_NAME_LENGTH[1] = (BYTE) sFile.size();						/**< FILE SIZE (LOW) */
+	if (FILE_ATTRIBUTE_DIRECTORY == (tPWIN32_FIND_DATA->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName + "\\";
+	else
+		if (!m_bFile)
+			sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName;
+		else
+			sFile = sDirectory.substr(dwInitialDirectoryLength);
 
-  //memcpy(tLOCAL_FILE_HEADER.f.EXTRA_FIELD_LENGTH, "\x00\x00", 2);						/**< UNUSED */
-	memcpy(tLOCAL_FILE_HEADER.f.FILE_NAME, sFile.c_str(), sFile.size());				/**< FILE NAME */
+	std::replace(sFile.begin(), sFile.end(), '\\', '/');
+
+	FileTimeToSystemTime(&tPWIN32_FIND_DATA->ftLastWriteTime, &tSYSTEMTIME);
+
+	// Time gets converted to UTC (TODO : Include local timezone differences)
+	wLastModificationTime = (WORD) (((tSYSTEMTIME.wHour & 0x1F) << 11) + ((tSYSTEMTIME.wMinute & 0x3F) << 5) + ((tSYSTEMTIME.wSecond >> 1) & 0x1F));
+	wLastModificationDate = (WORD) ((((tSYSTEMTIME.wYear - 1980) & 0x7F) << 9) + ((tSYSTEMTIME.wMonth & 0x0F) << 5) + (tSYSTEMTIME.wDay & 0x1F));
+
+	memcpy(tLOCAL_FILE_HEADER.f.LOCAL_FILE_HEADER_SIGNATURE, "\x50\x4b\x03\x04", 4);			/* SIGNATURE - LITTLE_ENDIAN */
+	memcpy(tLOCAL_FILE_HEADER.f.VERSION_NEEDED_TO_EXTRACT, "\x14\x00", 2);						/* VERSION 20 */
+  //memcpy(tLOCAL_FILE_HEADER.f.GENERAL_PURPOSE_BIT_FLAG, "\x00\x00", 2);						/* UNUSED */
+
+	tLOCAL_FILE_HEADER.f.COMPRESSION_METHOD[0] = (BYTE) wCompressionMethod;						/* COMPRESSION METHOD LOW */
+	tLOCAL_FILE_HEADER.f.COMPRESSION_METHOD[1] = (BYTE) (wCompressionMethod >> 8);				/* COMPRESSION METHOD HIGH */
+
+	tLOCAL_FILE_HEADER.f.FILE_LAST_MODIFICATION_TIME[0] = (BYTE) wLastModificationTime;			/* LAST MODIFICATION TIME LOW */
+	tLOCAL_FILE_HEADER.f.FILE_LAST_MODIFICATION_TIME[1] = (BYTE) (wLastModificationTime >> 8);	/* LAST MODIFICATION TIME HIGH */
+
+	tLOCAL_FILE_HEADER.f.FILE_LAST_MODIFICATION_DATE[0] = (BYTE) wLastModificationDate;			/* LAST MODIFICATION DATE LOW */
+	tLOCAL_FILE_HEADER.f.FILE_LAST_MODIFICATION_DATE[1] = (BYTE) (wLastModificationDate >> 8);	/* LAST MODIFICATION DATE HIGH */
+
+	tLOCAL_FILE_HEADER.f.CRC32[0] = (BYTE) dwCRC32;												/* CRC32 LOW-LOW */
+	tLOCAL_FILE_HEADER.f.CRC32[1] = (BYTE) (dwCRC32 >> 8);										/* CRC32 LOW */
+	tLOCAL_FILE_HEADER.f.CRC32[2] = (BYTE) (dwCRC32 >> 16);										/* CRC32 HIGH */
+	tLOCAL_FILE_HEADER.f.CRC32[3] = (BYTE) (dwCRC32 >> 24);										/* CRC32 HIGH-HIGH */
+
+	tLOCAL_FILE_HEADER.f.COMPRESSED_SIZE[0] = (BYTE) dwCompressedSize;							/* COMPRESSED SIZE LOW-LOW */
+	tLOCAL_FILE_HEADER.f.COMPRESSED_SIZE[1] = (BYTE) (dwCompressedSize >> 8);					/* COMPRESSED SIZE LOW */
+	tLOCAL_FILE_HEADER.f.COMPRESSED_SIZE[2] = (BYTE) (dwCompressedSize >> 16);					/* COMPRESSED SIZE HIGH */
+	tLOCAL_FILE_HEADER.f.COMPRESSED_SIZE[3] = (BYTE) (dwCompressedSize >> 24);					/* COMPRESSED SIZE HIGH-HIGH */
+
+	tLOCAL_FILE_HEADER.f.UNCOMPRESSED_SIZE[0] = (BYTE) dwUncompressedSize;						/* UNCOMPRESSED SIZE LOW-LOW */
+	tLOCAL_FILE_HEADER.f.UNCOMPRESSED_SIZE[1] = (BYTE) (dwUncompressedSize >> 8);				/* UNCOMPRESSED SIZE LOW */
+	tLOCAL_FILE_HEADER.f.UNCOMPRESSED_SIZE[2] = (BYTE) (dwUncompressedSize >> 16);				/* UNCOMPRESSED SIZE HIGH */
+	tLOCAL_FILE_HEADER.f.UNCOMPRESSED_SIZE[3] = (BYTE) (dwUncompressedSize >> 24);				/* UNCOMPRESSED SIZE HIGH-HIGH */
+
+	tLOCAL_FILE_HEADER.f.FILE_NAME_LENGTH[0] = (BYTE) sFile.size();								/* FILE SIZE LOW */
+	tLOCAL_FILE_HEADER.f.FILE_NAME_LENGTH[1] = (BYTE) (sFile.size() >> 8);						/* FILE SIZE HIGH */
+
+  //memcpy(tLOCAL_FILE_HEADER.f.EXTRA_FIELD_LENGTH, "\x00\x00", 2);								/* UNUSED */
+	memcpy(tLOCAL_FILE_HEADER.f.FILE_NAME, sFile.c_str(), sFile.size());						/* FILE NAME */
 
   //BYTE pbyEFBuffer[255] = { '\0' };
 
-  //memcpy(tLOCAL_FILE_HEADER.f.EXTRA_FIELD, pbyEFBuffer, 255);							/**< UNUSED */
+  //memcpy(tLOCAL_FILE_HEADER.f.EXTRA_FIELD, pbyEFBuffer, 255);									/* UNUSED */
 
 	// Copy to memory
 	vZippedData.resize(vZippedData.size() + 30 + sFile.size());
 	memcpy(vZippedData.data() + vZippedData.size() - 30 - sFile.size(), tLOCAL_FILE_HEADER.v, 30 + sFile.size());
 }
 
+/**
+ * @brief	Allocate data descriptor to buffer
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in,out] vZippedData : Buffer where data descriptor is stored
+ * @param	[in] dwCRC32 : CRC-32 of the uncompressed buffer
+ * @param	[in] dwCompressedSize : Size of the compressed buffer
+ * @param	[in] dwUncompressedSize : Size of the uncompressed buffer
+ *
+ */
+
 void cZIP::AllocateDataDescriptor(std::vector<BYTE> &vZippedData, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize)
 {
 	// Initialize to '\0'
 	DATA_DESCRIPTOR tDATA_DESCRIPTOR = { '\0' };
 
-	memcpy(tDATA_DESCRIPTOR.f.DATA_DESCRIPTOR_SIGNATURE, "\x50\x4b\x07\x08", 4);	/**< SIGNATURE - LITTLE_ENDIAN */
+	memcpy(tDATA_DESCRIPTOR.f.DATA_DESCRIPTOR_SIGNATURE, "\x50\x4b\x07\x08", 4);	/* SIGNATURE - LITTLE_ENDIAN */
 
-	tDATA_DESCRIPTOR.f.CRC32[0] = (BYTE) dwCRC32 >> 24;								/**< CRC32 HIGH-HIGH */
-	tDATA_DESCRIPTOR.f.CRC32[1] = (BYTE) dwCRC32 >> 16;								/**< CRC32 HIGH */
-	tDATA_DESCRIPTOR.f.CRC32[2] = (BYTE) dwCRC32 >> 8;								/**< CRC32 LOW */
-	tDATA_DESCRIPTOR.f.CRC32[3] = (BYTE) dwCRC32;									/**< CRC32 LOW-LOW */
+	tDATA_DESCRIPTOR.f.CRC32[0] = (BYTE) dwCRC32;									/* CRC32 LOW-LOW */
+	tDATA_DESCRIPTOR.f.CRC32[1] = (BYTE) (dwCRC32 >> 8);							/* CRC32 LOW */
+	tDATA_DESCRIPTOR.f.CRC32[2] = (BYTE) (dwCRC32 >> 16);							/* CRC32 HIGH */
+	tDATA_DESCRIPTOR.f.CRC32[3] = (BYTE) (dwCRC32 >> 24);							/* CRC32 HIGH-HIGH */
 
-	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[0] = (BYTE) dwCompressedSize >> 24;			/**< COMPRESSED SIZE HIGH-HIGH */
-	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[1] = (BYTE) dwCompressedSize >> 16;			/**< COMPRESSED SIZE HIGH */
-	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[2] = (BYTE) dwCompressedSize >> 8;			/**< COMPRESSED SIZE LOW */
-	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[3] = (BYTE) dwCompressedSize;				/**< COMPRESSED SIZE LOW-LOW */
+	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[0] = (BYTE) dwCompressedSize;				/* COMPRESSED SIZE LOW-LOW */
+	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[1] = (BYTE) (dwCompressedSize >> 8);			/* COMPRESSED SIZE LOW */
+	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[2] = (BYTE) (dwCompressedSize >> 16);		/* COMPRESSED SIZE HIGH */
+	tDATA_DESCRIPTOR.f.COMPRESSED_SIZE[3] = (BYTE) (dwCompressedSize >> 24);		/* COMPRESSED SIZE HIGH-HIGH */
 
-	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[0] = (BYTE) dwUncompressedSize >> 24;		/**< UNCOMPRESSED SIZE HIGH-HIGH */
-	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[1] = (BYTE) dwUncompressedSize >> 16;		/**< UNCOMPRESSED SIZE HIGH */
-	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[2] = (BYTE) dwUncompressedSize >> 8;		/**< UNCOMPRESSED SIZE LOW */
-	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[3] = (BYTE) dwUncompressedSize;			/**< UNCOMPRESSED SIZE LOW-LOW */
+	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[0] = (BYTE) dwUncompressedSize;			/* UNCOMPRESSED SIZE LOW-LOW */
+	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[1] = (BYTE) (dwUncompressedSize >> 8);		/* UNCOMPRESSED SIZE LOW */
+	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[2] = (BYTE) (dwUncompressedSize >> 16);	/* UNCOMPRESSED SIZE HIGH */
+	tDATA_DESCRIPTOR.f.UNCOMPRESSED_SIZE[3] = (BYTE) (dwUncompressedSize >> 24);	/* UNCOMPRESSED SIZE HIGH-HIGH */
 
 	// Copy to memory
 	vZippedData.resize(vZippedData.size() + 16);
 	memcpy(vZippedData.data() + vZippedData.size() - 16, tDATA_DESCRIPTOR.v, 16);
 }
 
-void cZIP::AllocateCentralDirectoryFileHeader(std::vector<BYTE> &vZippedData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize, const DWORD dwOffsetLocalHeader)
+/**
+ * @brief	Allocate central directory file header to buffer
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in,out] vZippedData : Buffer where data descriptor is stored
+ * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] dwInitialDirectoryLength : Length of initial directory path that is not to be zipped
+ * @param	[in] tPWIN32_FIND_DATA : File's information structure
+ * @param	[in] wCompressionMethod : Compression method used
+ * @param	[in] dwCRC32 : CRC-32 of the uncompressed buffer
+ * @param	[in] dwCompressedSize : Size of the compressed buffer
+ * @param	[in] dwUncompressedSize : Size of the uncompressed buffer
+ * @param	[in] dwOffsetLocalHeader : Offset to the matching local header (from start of the file)
+ *
+ */
+
+void cZIP::AllocateCentralDirectoryFileHeader(std::vector<BYTE> &vZippedData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA, const WORD wCompressionMethod, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize, const DWORD dwOffsetLocalHeader)
 {
 	CENTRAL_DIRECTORY_FILE_HEADER tCENTRAL_DIRECTORY_FILE_HEADER = { '\0' };
 
-	std::string sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName;
-	std::replace(sFile.begin(), sFile.end(), "\\", "/");
+	std::string sFile;
 
-	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.CENTRAL_DIRECTORY_FILE_HEADER_SIGNATURE, "\x50\x4b\x01\x02", 4);			/**< SIGNATURE - LITTLE_ENDIAN */
-	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.VERSION_MADE_BY, "\x00\x14", 2);											/**< VERSION 20 */
-	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.VERSION_NEEDED_TO_EXTRACT, "\x00\x14", 2);									/**< VERSION 20 */
-  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.GENERAL_PURPOSE_BIT_FLAG, "\x00\x00", 2);									/**< UNUSED */
-	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSION_METHOD, "\x00\x08", 2);											/**< DEFLATE */
-	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_LAST_MODIFICATION_TIME, "\x00\x00", 2);								/**< TODO - IMPORTANT! */
-	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_LAST_MODIFICATION_DATE, "\x00\x00", 2);								/**< TODO - IMPORTANT! */
+	SYSTEMTIME tSYSTEMTIME;
+	WORD wLastModificationDate;
+	WORD wLastModificationTime;
 
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[0] = (BYTE) dwCRC32 >> 24;													/**< CRC32 HIGH-HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[1] = (BYTE) dwCRC32 >> 16;													/**< CRC32 HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[2] = (BYTE) dwCRC32 >> 8;													/**< CRC32 LOW */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[3] = (BYTE) dwCRC32;															/**< CRC32 LOW-LOW */
+	if (FILE_ATTRIBUTE_DIRECTORY == (tPWIN32_FIND_DATA->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName + "\\";
+	else
+		if (!m_bFile)
+			sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName;
+		else
+			sFile = sDirectory.substr(dwInitialDirectoryLength);
 
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[0] = (BYTE) dwCompressedSize >> 24;								/**< COMPRESSED SIZE HIGH-HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[1] = (BYTE) dwCompressedSize >> 16;								/**< COMPRESSED SIZE HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[2] = (BYTE) dwCompressedSize >> 8;									/**< COMPRESSED SIZE LOW */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[3] = (BYTE) dwCompressedSize;										/**< COMPRESSED SIZE LOW-LOW */
+	std::replace(sFile.begin(), sFile.end(), '\\', '/');
 
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[0] = (BYTE) dwUncompressedSize >> 24;							/**< UNCOMPRESSED SIZE HIGH-HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[1] = (BYTE) dwUncompressedSize >> 16;							/**< UNCOMPRESSED SIZE HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[2] = (BYTE) dwUncompressedSize >> 8;								/**< UNCOMPRESSED SIZE LOW */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[3] = (BYTE) dwUncompressedSize;									/**< UNCOMPRESSED SIZE LOW-LOW */
+	FileTimeToSystemTime(&tPWIN32_FIND_DATA->ftLastWriteTime, &tSYSTEMTIME);
 
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_NAME_LENGTH[0] = (BYTE) sFile.size() >> 8;									/**< FILE SIZE (HIGH) */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_NAME_LENGTH[1] = (BYTE) sFile.size();											/**< FILE SIZE (LOW) */
+	// Time gets converted to UTC (TODO : Include local timezone differences)
+	wLastModificationTime = (WORD) (((tSYSTEMTIME.wHour & 0x1F) << 11) + ((tSYSTEMTIME.wMinute & 0x3F) << 5) + ((tSYSTEMTIME.wSecond >> 1) & 0x1F));
+	wLastModificationDate = (WORD) ((((tSYSTEMTIME.wYear - 1980) & 0x7F) << 9) + ((tSYSTEMTIME.wMonth & 0x0F) << 5) + (tSYSTEMTIME.wDay & 0x1F));
 
-  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTRA_FIELD_LENGTH, "\x00\x00", 2);											/**< UNUSED */
-  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_COMMENT_LENGTH, "\x00\x00", 2);										/**< UNUSED */
-  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.DISK_NUMBER_WHERE_FILE_STARTS, "\x00\x00", 2);								/**< UNUSED */
-  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.INTERNAL_FILE_ATTRIBUTES, "\x00\x00", 2);									/**< UNUSED */
+	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.CENTRAL_DIRECTORY_FILE_HEADER_SIGNATURE, "\x50\x4b\x01\x02", 4);			/* SIGNATURE - LITTLE_ENDIAN */
+	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.VERSION_MADE_BY, "\x14\x00", 2);											/* VERSION 20 */
+	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.VERSION_NEEDED_TO_EXTRACT, "\x14\x00", 2);									/* VERSION 20 */
+  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.GENERAL_PURPOSE_BIT_FLAG, "\x00\x00", 2);									/* UNUSED */
 
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[0] = (BYTE) tPWIN32_FIND_DATA->dwFileAttributes >> 24;	/**< FILE ATTRIBUTE HIGH-HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[1] = (BYTE) tPWIN32_FIND_DATA->dwFileAttributes >> 16;	/**< FILE ATTRIBUTE HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[2] = (BYTE) tPWIN32_FIND_DATA->dwFileAttributes >> 8;		/**< FILE ATTRIBUTE LOW */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[3] = (BYTE) tPWIN32_FIND_DATA->dwFileAttributes;			/**< FILE ATTRIBUTE LOW-LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSION_METHOD[0] = (BYTE) wCompressionMethod;									/* COMPRESSION METHOD LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSION_METHOD[1] = (BYTE) (wCompressionMethod >> 8);							/* COMPRESSION METHOD HIGH */
 
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[0] = (BYTE) dwOffsetLocalHeader >> 24;			/**< OFFSET LOCAL FILE HEADER HIGH-HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[1] = (BYTE) dwOffsetLocalHeader >> 16;			/**< OFFSET LOCAL FILE HEADER HIGH */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[2] = (BYTE) dwOffsetLocalHeader >> 8;			/**< OFFSET LOCAL FILE HEADER LOW */
-	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[3] = (BYTE) dwOffsetLocalHeader;					/**< OFFSET LOCAL FILE HEADER LOW-LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_LAST_MODIFICATION_TIME[0] = (BYTE) wLastModificationTime;						/* LAST MODIFICATION TIME LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_LAST_MODIFICATION_TIME[1] = (BYTE) (wLastModificationTime >> 8);				/* LAST MODIFICATION TIME HIGH */
 
-	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_NAME, sFile.c_str(), sFile.size());									/**< FILE NAME */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_LAST_MODIFICATION_DATE[0] = (BYTE) wLastModificationDate;						/* LAST MODIFICATION DATE LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_LAST_MODIFICATION_DATE[1] = (BYTE) (wLastModificationDate >> 8);				/* LAST MODIFICATION DATE HIGH */
+
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[0] = (BYTE) dwCRC32;															/* CRC32 LOW-LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[1] = (BYTE) (dwCRC32 >> 8);													/* CRC32 LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[2] = (BYTE) (dwCRC32 >> 16);													/* CRC32 HIGH */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.CRC32[3] = (BYTE) (dwCRC32 >> 24);													/* CRC32 HIGH-HIGH */
+
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[0] = (BYTE) dwCompressedSize;										/* COMPRESSED SIZE LOW-LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[1] = (BYTE) (dwCompressedSize >> 8);								/* COMPRESSED SIZE LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[2] = (BYTE) (dwCompressedSize >> 16);								/* COMPRESSED SIZE HIGH */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.COMPRESSED_SIZE[3] = (BYTE) (dwCompressedSize >> 24);								/* COMPRESSED SIZE HIGH-HIGH */
+
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[0] = (BYTE) dwUncompressedSize;									/* UNCOMPRESSED SIZE LOW-LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[1] = (BYTE) (dwUncompressedSize >> 8);							/* UNCOMPRESSED SIZE LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[2] = (BYTE) (dwUncompressedSize >> 16);							/* UNCOMPRESSED SIZE HIGH */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.UNCOMPRESSED_SIZE[3] = (BYTE) (dwUncompressedSize >> 24);							/* UNCOMPRESSED SIZE HIGH-HIGH */
+
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_NAME_LENGTH[0] = (BYTE) sFile.size();											/* FILE SIZE LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_NAME_LENGTH[1] = (BYTE) (sFile.size() >> 8);									/* FILE SIZE HIGH */
+
+  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTRA_FIELD_LENGTH, "\x00\x00", 2);											/* UNUSED */
+  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_COMMENT_LENGTH, "\x00\x00", 2);										/* UNUSED */
+  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.DISK_NUMBER_WHERE_FILE_STARTS, "\x00\x00", 2);								/* UNUSED */
+  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.INTERNAL_FILE_ATTRIBUTES, "\x00\x00", 2);									/* UNUSED */
+
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[0] = (BYTE) tPWIN32_FIND_DATA->dwFileAttributes;			/* FILE ATTRIBUTE LOW-LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[1] = (BYTE) (tPWIN32_FIND_DATA->dwFileAttributes >> 8);	/* FILE ATTRIBUTE LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[2] = (BYTE) (tPWIN32_FIND_DATA->dwFileAttributes >> 16);	/* FILE ATTRIBUTE HIGH */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTERNAL_FILE_ATTRIBUTES[3] = (BYTE) (tPWIN32_FIND_DATA->dwFileAttributes >> 24);	/* FILE ATTRIBUTE HIGH-HIGH */
+
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[0] = (BYTE) dwOffsetLocalHeader;					/* OFFSET LOCAL FILE HEADER LOW-LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[1] = (BYTE) (dwOffsetLocalHeader >> 8);			/* OFFSET LOCAL FILE HEADER LOW */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[2] = (BYTE) (dwOffsetLocalHeader >> 16);			/* OFFSET LOCAL FILE HEADER HIGH */
+	tCENTRAL_DIRECTORY_FILE_HEADER.f.RELATIVE_OFFSET_LOCAL_FILE_HEADER[3] = (BYTE) (dwOffsetLocalHeader >> 24);			/* OFFSET LOCAL FILE HEADER HIGH-HIGH */
+
+	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_NAME, sFile.c_str(), sFile.size());									/* FILE NAME */
 
   //BYTE byEFBuffer[255] = { '\0' };
 
-  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTRA_FIELD, byEFBuffer, 255);												/**< UNUSED */
+  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.EXTRA_FIELD, byEFBuffer, 255);												/* UNUSED */
 
   //BYTE byFCBuffer[255] = { '\0' };
 
-  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_COMMENT, byFCBuffer, 255);												/**< UNUSED */
+  //memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.FILE_COMMENT, byFCBuffer, 255);												/* UNUSED */
 
 	// Copy to memory
 	vZippedData.resize(vZippedData.size() + 46 + sFile.size());
@@ -335,37 +609,103 @@ void cZIP::AllocateCentralDirectoryFileHeader(std::vector<BYTE> &vZippedData, co
 	m_wNumberOfCentralDirectories++;
 }
 
+/**
+ * @brief	Allocate end of central directory record to buffer
+ *
+ * @author	Maxime Lagadec
+ * @date	4/8/2018
+ *
+ * @param	[in,out] vZippedData : Buffer where data descriptor is stored
+ * @param	[in] wNumberOfCentralDirectories : Total number of central directories allocated
+ * @param	[in] dwSizeOfCentralDirectory : Size of the central directory buffer
+ * @param	[in] dwOffsetStartCentralDirectory : Offset to the start of the central directory from the start of the buffer
+ *
+ */
+
 void cZIP::AllocateEndOfCentralDirectoryRecord(std::vector<BYTE> &vZippedData, const WORD wNumberOfCentralDirectories, const DWORD dwSizeOfCentralDirectory, const DWORD dwOffsetStartCentralDirectory)
 {
 	END_OF_CENTRAL_DIRECTORY_RECORD tEND_OF_CENTRAL_DIRECTORY_RECORD = { '\0' };
 
-	memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.END_OF_CENTRAL_DIRECTORY_SIGNATURE, "\x50\x4b\x05\x06", 4);								/**< SIGNATURE - LITTLE_ENDIAN */
-  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.NUMBER_OF_THIS_DISK, "\x00\x00", 2);														/**< UNUSED */
-  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.DISK_WHERE_CENTRAL_DIRECTORY_STARTS, "\x00\x00", 2);										/**< UNUSED */
+	memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.END_OF_CENTRAL_DIRECTORY_SIGNATURE, "\x50\x4b\x05\x06", 4);								/* SIGNATURE - LITTLE_ENDIAN */
+  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.NUMBER_OF_THIS_DISK, "\x00\x00", 2);														/* UNUSED */
+  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.DISK_WHERE_CENTRAL_DIRECTORY_STARTS, "\x00\x00", 2);										/* UNUSED */
 
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.NUMBER_OF_CENTRAL_DIRECTORY_RECORDS_ON_THIS_DISK[0] = (BYTE) wNumberOfCentralDirectories >> 8;	/**< NUMBER OF CENTRAL DIRECTORIES HIGH */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.NUMBER_OF_CENTRAL_DIRECTORY_RECORDS_ON_THIS_DISK[1] = (BYTE) wNumberOfCentralDirectories;		/**< NUMBER OF CETRANL DIRECTORIES LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.NUMBER_OF_CENTRAL_DIRECTORY_RECORDS_ON_THIS_DISK[0] = (BYTE) wNumberOfCentralDirectories;		/* NUMBER OF CENTRAL DIRECTORIES LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.NUMBER_OF_CENTRAL_DIRECTORY_RECORDS_ON_THIS_DISK[1] = (BYTE) (wNumberOfCentralDirectories >> 8);	/* NUMBER OF CETRANL DIRECTORIES HIGH */
 
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.TOTAL_NUMBER_OF_CENTRAL_DIRECTORY_RECORDS[0] = (BYTE) wNumberOfCentralDirectories >> 8;			/**< NUMBER OF CENTRAL DIRECTORIES HIGH */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.TOTAL_NUMBER_OF_CENTRAL_DIRECTORY_RECORDS[1] = (BYTE) wNumberOfCentralDirectories;				/**< NUMBER OF CETRANL DIRECTORIES LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.TOTAL_NUMBER_OF_CENTRAL_DIRECTORY_RECORDS[0] = (BYTE) wNumberOfCentralDirectories;				/* NUMBER OF CENTRAL DIRECTORIES LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.TOTAL_NUMBER_OF_CENTRAL_DIRECTORY_RECORDS[1] = (BYTE) (wNumberOfCentralDirectories >> 8);		/* NUMBER OF CETRANL DIRECTORIES HIGH */
 
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[0] = (BYTE) dwSizeOfCentralDirectory >> 24;							/**< SIZE OF CENTRAL DIRECTORY HIGH-HIGH */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[1] = (BYTE) dwSizeOfCentralDirectory >> 16;							/**< SIZE OF CENTRAL DIRECTORY HIGH */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[2] = (BYTE) dwSizeOfCentralDirectory >> 8;								/**< SIZE OF CENTRAL DIRECTORY LOW */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[3] = (BYTE) dwSizeOfCentralDirectory;									/**< SIZE OF CENTRAL DIRECTORY LOW-LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[0] = (BYTE) dwSizeOfCentralDirectory;									/* SIZE OF CENTRAL DIRECTORY LOW-LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[1] = (BYTE) (dwSizeOfCentralDirectory >> 8);							/* SIZE OF CENTRAL DIRECTORY LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[2] = (BYTE) (dwSizeOfCentralDirectory >> 16);							/* SIZE OF CENTRAL DIRECTORY HIGH */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.SIZE_OF_CENTRAL_DIRECTORY[3] = (BYTE) (dwSizeOfCentralDirectory >> 24);							/* SIZE OF CENTRAL DIRECTORY HIGH-HIGH */
 
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[0] = (BYTE) dwOffsetStartCentralDirectory >> 24;			/**< OFFSET START OF CENTRAL DIRECTORY HIGH-HIGH */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[1] = (BYTE) dwOffsetStartCentralDirectory >> 16;			/**< OFFSET START OF CENTRAL DIRECTORY HIGH */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[2] = (BYTE) dwOffsetStartCentralDirectory >> 8;				/**< OFFSET START OF CENTRAL DIRECTORY LOW */
-	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[3] = (BYTE) dwOffsetStartCentralDirectory;					/**< OFFSET START OF CENTRAL DIRECTORY LOW-LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[0] = (BYTE) dwOffsetStartCentralDirectory;					/* OFFSET START OF CENTRAL DIRECTORY LOW-LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[1] = (BYTE) (dwOffsetStartCentralDirectory >> 8);			/* OFFSET START OF CENTRAL DIRECTORY LOW */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[2] = (BYTE) (dwOffsetStartCentralDirectory >> 16);			/* OFFSET START OF CENTRAL DIRECTORY HIGH */
+	tEND_OF_CENTRAL_DIRECTORY_RECORD.f.OFFSET_OF_START_OF_CENTRAL_DIRECTORY[3] = (BYTE) (dwOffsetStartCentralDirectory >> 24);			/* OFFSET START OF CENTRAL DIRECTORY HIGH-HIGH */
 
-  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.COMMENT_LENGTH, "\x00\x00", 2);															/**< UNUSED */
+  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.COMMENT_LENGTH, "\x00\x00", 2);															/* UNUSED */
 
   //BYTE byCBuffer[255] = { '\0' };
 
-  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.COMMENT, byCBuffer, 255);																	/**< UNUSED */
+  //memcpy(tEND_OF_CENTRAL_DIRECTORY_RECORD.f.COMMENT, byCBuffer, 255);																	/* UNUSED */
 
 	// Copy to memory
 	vZippedData.resize(vZippedData.size() + 22);
 	memcpy(vZippedData.data() + vZippedData.size() - 22, tEND_OF_CENTRAL_DIRECTORY_RECORD.v, 22);
+}
+
+/**
+ * @brief	Compress source buffer to destination buffer
+ *
+ * @author	Maxime Lagadec
+ * @date	4/11/2018
+ *
+ * @param	[in,out] dest : Buffer that receives compressed data
+ * @param	[in,out] destLen : Length of the destination buffer
+ * @param	[in] source : Buffer to be compressed
+ * @param	[in] sourceLen : Length of the source buffer
+ * @param	[in] level : 0 for store, 1 is fastest and 9 is best compress ratio
+ *
+ * @note	destLen gets updated with the actual size of the compression
+ * @note	Compress is RAW (no zlib header) and uses deflate method
+ *
+ * @return	SUCCESS : 0
+ * @return	ERROR : zlib's defined errors
+ *
+ */
+
+int cZIP::compressRAW(Bytef *dest, uLongf *destLen, const Bytef *source, uLong sourceLen, int level)
+{
+	z_stream stream;
+	int err;
+
+	stream.next_in = (Bytef*)source;
+	stream.avail_in = (uInt)sourceLen;
+#ifdef MAXSEG_64K
+	/* Check for source > 64K on 16-bit machine: */
+	if ((uLong)stream.avail_in != sourceLen) return Z_BUF_ERROR;
+#endif
+	stream.next_out = dest;
+	stream.avail_out = (uInt)*destLen;
+	if ((uLong)stream.avail_out != *destLen) return Z_BUF_ERROR;
+
+	stream.zalloc = (alloc_func)0;
+	stream.zfree = (free_func)0;
+	stream.opaque = (voidpf)0;
+
+	err = deflateInit2(&stream, level, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY);
+	if (err != Z_OK) return err;
+
+	err = deflate(&stream, Z_FINISH);
+	if (err != Z_STREAM_END) {
+		deflateEnd(&stream);
+		return err == Z_OK ? Z_BUF_ERROR : err;
+	}
+	*destLen = stream.total_out;
+
+	err = deflateEnd(&stream);
+	return err;
 }

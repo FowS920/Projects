@@ -1,67 +1,67 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="ZIP">
+    <Filter Include="Library_ZIP">
       <UniqueIdentifier>{4f2241d6-8188-40a8-9373-449c386efa04}</UniqueIdentifier>
     </Filter>
-    <Filter Include="ZIP\Resource Files">
+    <Filter Include="Library_ZIP\Resource Files">
       <UniqueIdentifier>{635cfb6c-1946-48a0-915a-2d2f7124c53c}</UniqueIdentifier>
     </Filter>
-    <Filter Include="ZIP\Headers">
+    <Filter Include="Library_ZIP\Headers">
       <UniqueIdentifier>{30814a23-2029-4d55-851e-c2367e4a89b7}</UniqueIdentifier>
     </Filter>
-    <Filter Include="ZIP\Source">
+    <Filter Include="Library_ZIP\Source">
       <UniqueIdentifier>{29efd557-f724-41b2-a3c3-49664e8aaeac}</UniqueIdentifier>
     </Filter>
-    <Filter Include="ZIP\Library">
+    <Filter Include="Library_ZIP\Library">
       <UniqueIdentifier>{bfbfcc07-01d2-4e16-8b88-380c850c30a2}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\cUNZIP.cpp">
-      <Filter>ZIP\Source</Filter>
+      <Filter>Library_ZIP\Source</Filter>
     </ClCompile>
     <ClCompile Include="Source\cZIP.cpp">
-      <Filter>ZIP\Source</Filter>
+      <Filter>Library_ZIP\Source</Filter>
     </ClCompile>
     <ClCompile Include="Source\MAIN.cpp">
-      <Filter>ZIP\Source</Filter>
+      <Filter>Library_ZIP\Source</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Headers\cUNZIP.h">
-      <Filter>ZIP\Headers</Filter>
+      <Filter>Library_ZIP\Headers</Filter>
     </ClInclude>
     <ClInclude Include="Headers\cZIP.h">
-      <Filter>ZIP\Headers</Filter>
+      <Filter>Library_ZIP\Headers</Filter>
     </ClInclude>
     <ClInclude Include="Headers\tZIP.h">
-      <Filter>ZIP\Headers</Filter>
+      <Filter>Library_ZIP\Headers</Filter>
     </ClInclude>
     <ClInclude Include="Library\ioapi.h">
-      <Filter>ZIP\Library</Filter>
+      <Filter>Library_ZIP\Library</Filter>
     </ClInclude>
     <ClInclude Include="Library\unzip.h">
-      <Filter>ZIP\Library</Filter>
+      <Filter>Library_ZIP\Library</Filter>
     </ClInclude>
     <ClInclude Include="Library\zconf.h">
-      <Filter>ZIP\Library</Filter>
+      <Filter>Library_ZIP\Library</Filter>
     </ClInclude>
     <ClInclude Include="Library\zip.h">
-      <Filter>ZIP\Library</Filter>
+      <Filter>Library_ZIP\Library</Filter>
     </ClInclude>
     <ClInclude Include="Library\zlib.h">
-      <Filter>ZIP\Library</Filter>
+      <Filter>Library_ZIP\Library</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="Library\zlibwapi.dll">
-      <Filter>ZIP\Library</Filter>
+      <Filter>Library_ZIP\Library</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
     <Library Include="Library\zlibwapi.lib">
-      <Filter>ZIP\Library</Filter>
+      <Filter>Library_ZIP\Library</Filter>
     </Library>
   </ItemGroup>
 </Project>
