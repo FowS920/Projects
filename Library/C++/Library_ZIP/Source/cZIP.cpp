@@ -2,6 +2,12 @@
 
 #include "cZIP.h"
 
+// Define only when using for transfert
+// For local computer use, undefine
+// Do this for both cZIP and cUNZIP
+#define __CODE_PAGE_UTF8_
+#include "TString.h"
+
 // TODO : Define more errors type
 #define ZIP_SUCCESS	0x0000;
 #define ZIP_ERROR	0x0001;
@@ -25,15 +31,15 @@ cZIP::cZIP()
  * @author	Maxime Lagadec
  * @date	4/8/2018
  *
- * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] wsDirectory : Path to directory or file to zip into memory
  *
  * @note	Use GetDidZipFail() to confirm zipping worked
  *
  */
 
-cZIP::cZIP(std::string sDirectory)
+cZIP::cZIP(std::wstring wsDirectory)
 {
-	m_bZippingFailed = ZipToMemory(sDirectory);
+	m_bZippingFailed = ZipToMemory(wsDirectory);
 }
 
 /**
@@ -42,17 +48,17 @@ cZIP::cZIP(std::string sDirectory)
  * @author	Maxime Lagadec
  * @date	4/8/2018
  *
- * @param	[in] sDirectory : Path to directory or file to zip into memory
- * @param	[in] sDestination : Path to directory with file name to zip into memory
+ * @param	[in] wsDirectory : Path to directory or file to zip into memory
+ * @param	[in] wsDestination : Path to directory with file name to zip into memory
  * @param	[in,opt] bFlush : TRUE -> Flush memory data after zipping / FALSE -> Do not flush memory data after zipping
  *
  * @note	Use GetDidZipFail() to confirm zipping worked
  *
  */
 
-cZIP::cZIP(std::string sDirectory, std::string sDestination, const BOOL bFlush)
+cZIP::cZIP(std::wstring wsDirectory, std::wstring wsDestination, const BOOL bFlush)
 {
-	m_bZippingFailed = ZipToFile(sDirectory, sDestination, bFlush);
+	m_bZippingFailed = ZipToFile(wsDirectory, wsDestination, bFlush);
 }
 
 /**
@@ -74,7 +80,7 @@ cZIP::~cZIP()
  * @author	Maxime Lagadec
  * @date	4/8/2018
  *
- * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] wsDirectory : Path to directory or file to zip into memory
  *
  * @return	SUCCESS : 0
  * @return	ERROR : 1
@@ -83,7 +89,7 @@ cZIP::~cZIP()
  *
  */
 
-DWORD cZIP::ZipToMemory(std::string sDirectory)
+DWORD cZIP::ZipToMemory(std::wstring wsDirectory)
 {
 	DWORD dwSizeOfCentralDirectory;
 	DWORD dwOffsetStartCentralDirectory;
@@ -92,17 +98,12 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
 	FlushMemory();
 
 	// Swap all / to \\ in case (we use \\ for coding and / for storing)
-	std::replace(sDirectory.begin(), sDirectory.end(), '/', '\\');
+	std::replace(wsDirectory.begin(), wsDirectory.end(), L'/', L'\\');
 
-	// Make sure directory has no double backslash ("\\\\") except for drive
-	if (sDirectory.find(":\\\\") != std::string::npos)
+	// Make sure directory has no double backslash ("\\\\") except for network drive
+	if (wsDirectory.find(L"\\\\") != std::wstring::npos)
 	{
-		if (sDirectory.substr(sDirectory.find(":\\\\") + 1).find("\\\\") != std::string::npos)
-			return ZIP_ERROR;
-	}
-	else
-	{
-		if (sDirectory.find("\\\\") != std::string::npos)
+		if (wsDirectory.rfind(L"\\\\") >= 1)
 			return ZIP_ERROR;
 	}
 
@@ -112,7 +113,7 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
 
 		WIN32_FIND_DATA tWIN32_FIND_DATA;
 
-		hFile = FindFirstFile(sDirectory.c_str(), &tWIN32_FIND_DATA);
+		hFile = FindFirstFile(ToTString(wsDirectory).c_str(), &tWIN32_FIND_DATA);
 
 		if (hFile == INVALID_HANDLE_VALUE)
 			return ZIP_ERROR;
@@ -127,7 +128,7 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
 		// Try to catch bad_allocation (when resizing vectors)
 		try
 		{
-			if (ZIP(m_vZippedData, vCentralHeaderData, sDirectory, sDirectory.rfind("\\") + 1, m_bFile))
+			if (ZIP(m_vZippedData, vCentralHeaderData, wsDirectory, wsDirectory.rfind(L"\\") + 1, m_bFile))
 			{
 				// Reset memory
 				FlushMemory();
@@ -135,7 +136,7 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
 			}
 		}
 		// We did not have enough space to allocate correctly the data
-		catch (std::bad_alloc &e)
+		catch (std::bad_alloc)
 		{
 			// Reset memory
 			FlushMemory();
@@ -152,7 +153,7 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
 
 	AllocateEndOfCentralDirectoryRecord(m_vZippedData, m_wNumberOfCentralDirectories, dwSizeOfCentralDirectory, dwOffsetStartCentralDirectory);
 
-	m_sStoredDirectoryZip = sDirectory;
+	m_wsStoredDirectoryZip = wsDirectory;
 	m_bZippedDataInMemory = TRUE;
 
 	return ZIP_SUCCESS;
@@ -164,8 +165,8 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
  * @author	Maxime Lagadec
  * @date	4/8/2018
  *
- * @param	[in] sDirectory : Path to directory or file to zip into memory
- * @param	[in] sDestination : Path to directory with file name to zip into memory
+ * @param	[in] wsDirectory : Path to directory or file to zip into memory
+ * @param	[in] wsDestination : Path to directory with file name to zip into memory
  * @param	[in,opt] bFlush : TRUE -> Flush memory data after zipping / FALSE -> Do not flush memory data after zipping
  *
  * @return	SUCCESS : 0
@@ -175,13 +176,13 @@ DWORD cZIP::ZipToMemory(std::string sDirectory)
  * @note	sDestination file name must have no extention or .zip has an extension
  */
 
-DWORD cZIP::ZipToFile(std::string sDirectory, std::string sDestination, const BOOL bFlush)
+DWORD cZIP::ZipToFile(std::wstring wsDirectory, std::wstring wsDestination, const BOOL bFlush)
 {
 	HANDLE hOpenedFile;
 
 	// Make sure destination exists
 	hOpenedFile = CreateFile(
-		sDestination.c_str(),
+		ToTString(wsDestination).c_str(),
 		GENERIC_WRITE,
 		FILE_SHARE_READ,
 		NULL,
@@ -194,12 +195,12 @@ DWORD cZIP::ZipToFile(std::string sDirectory, std::string sDestination, const BO
 		return ZIP_ERROR;
 
 	// If already zipped don't rezip
-	if (!(m_bZippedDataInMemory && (m_sStoredDirectoryZip == sDirectory)))
+	if (!(m_bZippedDataInMemory && (m_wsStoredDirectoryZip == wsDirectory)))
 		// Zip to memory
-		if (ZipToMemory(sDirectory))
+		if (ZipToMemory(wsDirectory))
 		{
 			CloseHandle(hOpenedFile);
-			remove(sDestination.c_str());
+			_wremove(wsDestination.c_str());
 			return ZIP_ERROR;
 		}
 
@@ -225,8 +226,12 @@ void cZIP::FlushMemory()
 {
 	m_bFile = FALSE;
 	m_bZippedDataInMemory = FALSE;
-	m_sStoredDirectoryZip = "";
+	m_wsStoredDirectoryZip = L"";
+
 	m_vZippedData.clear();
+	m_vZippedData.resize(0);
+	m_vZippedData.shrink_to_fit();
+
 	m_wNumberOfCentralDirectories = 0;
 }
 
@@ -238,7 +243,7 @@ void cZIP::FlushMemory()
  *
  * @param	[in,out] vZippedData : Buffer where headers and data is stored
  * @param	[in,out] vCentralHeaderData : Buffer where central header data is stored
- * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] wsDirectory : Path to directory or file to zip into memory
  * @param	[in] dwInitialDirectoryLength : Length of initial directory path that is not to be zipped
  * @param	[in] bFile : TRUE if we are zipping a file, FALSE if we are zipping a directory
  *
@@ -247,35 +252,35 @@ void cZIP::FlushMemory()
  *
  */
 
-DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeaderData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const BOOL bFile)
+DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeaderData, const std::wstring wsDirectory, const DWORD dwInitialDirectoryLength, const BOOL bFile)
 {
 	HANDLE hFile;
 	HANDLE hOpenedFile;
 
 	WIN32_FIND_DATA tWIN32_FIND_DATA;
 
-	std::string sFileName;
-	std::string sFile;
+	std::wstring wsFileName;
+	std::wstring wsFile;
 
-	std::string sSearchDirectory;
-	std::string sNewDirectory;
+	std::wstring wsSearchDirectory;
+	std::wstring wsNewDirectory;
 
 	if (bFile)
-		sSearchDirectory = sDirectory;
+		wsSearchDirectory = wsDirectory;
 	else
-		sSearchDirectory = sDirectory + "\\*";
+		wsSearchDirectory = wsDirectory + L"\\*";
 
-	hFile = FindFirstFile(sSearchDirectory.c_str(), &tWIN32_FIND_DATA);
+	hFile = FindFirstFile(ToTString(wsSearchDirectory).c_str(), &tWIN32_FIND_DATA);
 
 	if (hFile == INVALID_HANDLE_VALUE)
 		return ZIP_ERROR;
 
 	do
 	{
-		sFileName = tWIN32_FIND_DATA.cFileName;
+		wsFile = ToWString(tWIN32_FIND_DATA.cFileName);
 
 		// We don't want to add DOS files (. and ..)
-		if ((sFileName == ".") || (sFileName == ".."))
+		if ((wsFile == L".") || (wsFile == L".."))
 		{
 			continue;
 		}
@@ -284,16 +289,16 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 		{
 			DWORD dwOffsetLocalHeader;
 
-			sNewDirectory = sDirectory + "\\" + tWIN32_FIND_DATA.cFileName;
+			wsNewDirectory = wsDirectory + L"\\" + ToWString(tWIN32_FIND_DATA.cFileName);
 
 			// Add to header
 			dwOffsetLocalHeader = vZippedData.size();
 
-			AllocateLocalFileHeader(vZippedData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0000, 0x00000000, 0x00000000, 0x00000000);
+			AllocateLocalFileHeader(vZippedData, wsDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0000, 0x00000000, 0x00000000, 0x00000000);
 		  //AllocateDataDescriptor(vZippedData, 0x00000000, 0x00000000, 0x00000000);
-			AllocateCentralDirectoryFileHeader(vCentralHeaderData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0000, 0x00000000, 0x00000000, 0x00000000, dwOffsetLocalHeader);
+			AllocateCentralDirectoryFileHeader(vCentralHeaderData, wsDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0000, 0x00000000, 0x00000000, 0x00000000, dwOffsetLocalHeader);
 
-			if (ZIP(vZippedData, vCentralHeaderData, sNewDirectory, dwInitialDirectoryLength, FALSE))
+			if (ZIP(vZippedData, vCentralHeaderData, wsNewDirectory, dwInitialDirectoryLength, FALSE))
 			{
 				FindClose(hFile);
 				return ZIP_ERROR;
@@ -306,8 +311,6 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 			DWORD dwCompressedSize;
 			DWORD dwUncompressedSize;
 			DWORD dwOffsetLocalHeader;
-
-			DWORD dwNumberOfBytesRead;
 
 			std::vector<BYTE> byCompressedBuffer;
 
@@ -328,12 +331,12 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 
 				// Read file to buffer
 				if (m_bFile)
-					sFile = sDirectory;
+					wsFile = wsDirectory;
 				else
-					sFile = sDirectory + "\\" + tWIN32_FIND_DATA.cFileName;
+					wsFile = wsDirectory + L"\\" + ToWString(tWIN32_FIND_DATA.cFileName);
 
 				hOpenedFile = CreateFile(
-					sFile.c_str(),
+					ToTString(wsFile).c_str(),
 					GENERIC_READ,
 					FILE_SHARE_READ | FILE_SHARE_WRITE,
 					NULL,
@@ -352,17 +355,18 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
 				dwCRC32 = crc32(0L, Z_NULL, 0);
 				dwCRC32 = crc32(dwCRC32, byUncompressedBuffer.data(), dwUncompressedSize);
 
-				compressRAW(byCompressedBuffer.data(), &dwCompressedSize, byUncompressedBuffer.data(), dwUncompressedSize, 5);
+				if (compressRAW(byCompressedBuffer.data(), &dwCompressedSize, byUncompressedBuffer.data(), dwUncompressedSize, 5))
+					return ZIP_ERROR;
 			}
 
-			AllocateLocalFileHeader(vZippedData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0008, dwCRC32, dwCompressedSize, dwUncompressedSize);
+			AllocateLocalFileHeader(vZippedData, wsDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0008, dwCRC32, dwCompressedSize, dwUncompressedSize);
 
 			// Copy to memory
 			vZippedData.resize(vZippedData.size() + dwCompressedSize);
 			memcpy(vZippedData.data() + vZippedData.size() - dwCompressedSize, byCompressedBuffer.data(), dwCompressedSize);
 
 		  //AllocateDataDescriptor(vZippedData, dwCRC32, dwCompressedSize, dwUncompressedSize);
-			AllocateCentralDirectoryFileHeader(vCentralHeaderData, sDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0008, dwCRC32, dwCompressedSize, dwUncompressedSize, dwOffsetLocalHeader);
+			AllocateCentralDirectoryFileHeader(vCentralHeaderData, wsDirectory, dwInitialDirectoryLength, &tWIN32_FIND_DATA, 0x0008, dwCRC32, dwCompressedSize, dwUncompressedSize, dwOffsetLocalHeader);
 		}
 	} while (FindNextFile(hFile, &tWIN32_FIND_DATA));
 
@@ -381,7 +385,7 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
  * @date	4/8/2018
  *
  * @param	[in,out] vZippedData : Buffer where local file header is stored
- * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] wsDirectory : Path to directory or file to zip into memory
  * @param	[in] dwInitialDirectoryLength : Length of initial directory path that is not to be zipped
  * @param	[in] tPWIN32_FIND_DATA : File's information structure
  * @param	[in] wCompressionMethod : Compression method used
@@ -391,32 +395,37 @@ DWORD cZIP::ZIP(std::vector<BYTE> &vZippedData, std::vector<BYTE> &vCentralHeade
  *
  */
 
-void cZIP::AllocateLocalFileHeader(std::vector<BYTE> &vZippedData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA, const WORD wCompressionMethod, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize)
+void cZIP::AllocateLocalFileHeader(std::vector<BYTE> &vZippedData, const std::wstring wsDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA, const WORD wCompressionMethod, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize)
 {
 	// Initialize to '\0'
 	LOCAL_FILE_HEADER tLOCAL_FILE_HEADER = { '\0' };
 
+	std::wstring wsFile;
 	std::string sFile;
 
 	SYSTEMTIME tSYSTEMTIME;
+	SYSTEMTIME tLOCALSYSTEMTIME;
 	WORD wLastModificationDate;
 	WORD wLastModificationTime;
 
 	if (FILE_ATTRIBUTE_DIRECTORY == (tPWIN32_FIND_DATA->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-		sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName + "\\";
+		wsFile = wsDirectory.substr(dwInitialDirectoryLength) + L"\\" + ToWString(tPWIN32_FIND_DATA->cFileName) + L"\\";
 	else
 		if (!m_bFile)
-			sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName;
+			wsFile = wsDirectory.substr(dwInitialDirectoryLength) + L"\\" + ToWString(tPWIN32_FIND_DATA->cFileName);
 		else
-			sFile = sDirectory.substr(dwInitialDirectoryLength);
+			wsFile = wsDirectory.substr(dwInitialDirectoryLength);
 
-	std::replace(sFile.begin(), sFile.end(), '\\', '/');
+	std::replace(wsFile.begin(), wsFile.end(), L'\\', L'/');
+	sFile = ToString(wsFile);
 
 	FileTimeToSystemTime(&tPWIN32_FIND_DATA->ftLastWriteTime, &tSYSTEMTIME);
 
-	// Time gets converted to UTC (TODO : Include local timezone differences)
-	wLastModificationTime = (WORD) (((tSYSTEMTIME.wHour & 0x1F) << 11) + ((tSYSTEMTIME.wMinute & 0x3F) << 5) + ((tSYSTEMTIME.wSecond >> 1) & 0x1F));
-	wLastModificationDate = (WORD) ((((tSYSTEMTIME.wYear - 1980) & 0x7F) << 9) + ((tSYSTEMTIME.wMonth & 0x0F) << 5) + (tSYSTEMTIME.wDay & 0x1F));
+	// Get file's LOCAL time
+	SystemTimeToTzSpecificLocalTime(NULL, &tSYSTEMTIME, &tLOCALSYSTEMTIME);
+
+	wLastModificationTime = (WORD) (((tLOCALSYSTEMTIME.wHour & 0x1F) << 11) + ((tSYSTEMTIME.wMinute & 0x3F) << 5) + ((tSYSTEMTIME.wSecond & 0x1F) >> 1));
+	wLastModificationDate = (WORD) ((((tLOCALSYSTEMTIME.wYear - 1980) & 0x7F) << 9) + ((tLOCALSYSTEMTIME.wMonth & 0x0F) << 5) + (tLOCALSYSTEMTIME.wDay & 0x1F));
 
 	memcpy(tLOCAL_FILE_HEADER.f.LOCAL_FILE_HEADER_SIGNATURE, "\x50\x4b\x03\x04", 4);			/* SIGNATURE - LITTLE_ENDIAN */
 	memcpy(tLOCAL_FILE_HEADER.f.VERSION_NEEDED_TO_EXTRACT, "\x14\x00", 2);						/* VERSION 20 */
@@ -508,7 +517,7 @@ void cZIP::AllocateDataDescriptor(std::vector<BYTE> &vZippedData, const DWORD dw
  * @date	4/8/2018
  *
  * @param	[in,out] vZippedData : Buffer where data descriptor is stored
- * @param	[in] sDirectory : Path to directory or file to zip into memory
+ * @param	[in] wsDirectory : Path to directory or file to zip into memory
  * @param	[in] dwInitialDirectoryLength : Length of initial directory path that is not to be zipped
  * @param	[in] tPWIN32_FIND_DATA : File's information structure
  * @param	[in] wCompressionMethod : Compression method used
@@ -519,31 +528,36 @@ void cZIP::AllocateDataDescriptor(std::vector<BYTE> &vZippedData, const DWORD dw
  *
  */
 
-void cZIP::AllocateCentralDirectoryFileHeader(std::vector<BYTE> &vZippedData, const std::string sDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA, const WORD wCompressionMethod, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize, const DWORD dwOffsetLocalHeader)
+void cZIP::AllocateCentralDirectoryFileHeader(std::vector<BYTE> &vZippedData, const std::wstring wsDirectory, const DWORD dwInitialDirectoryLength, const PWIN32_FIND_DATA tPWIN32_FIND_DATA, const WORD wCompressionMethod, const DWORD dwCRC32, const DWORD dwCompressedSize, const DWORD dwUncompressedSize, const DWORD dwOffsetLocalHeader)
 {
 	CENTRAL_DIRECTORY_FILE_HEADER tCENTRAL_DIRECTORY_FILE_HEADER = { '\0' };
 
+	std::wstring wsFile;
 	std::string sFile;
 
 	SYSTEMTIME tSYSTEMTIME;
+	SYSTEMTIME tLOCALSYSTEMTIME;
 	WORD wLastModificationDate;
 	WORD wLastModificationTime;
 
 	if (FILE_ATTRIBUTE_DIRECTORY == (tPWIN32_FIND_DATA->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-		sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName + "\\";
+		wsFile = wsDirectory.substr(dwInitialDirectoryLength) + L"\\" + ToWString(tPWIN32_FIND_DATA->cFileName) + L"\\";
 	else
 		if (!m_bFile)
-			sFile = sDirectory.substr(dwInitialDirectoryLength) + "\\" + tPWIN32_FIND_DATA->cFileName;
+			wsFile = wsDirectory.substr(dwInitialDirectoryLength) + L"\\" + ToWString(tPWIN32_FIND_DATA->cFileName);
 		else
-			sFile = sDirectory.substr(dwInitialDirectoryLength);
+			wsFile = wsDirectory.substr(dwInitialDirectoryLength);
 
-	std::replace(sFile.begin(), sFile.end(), '\\', '/');
+	std::replace(wsFile.begin(), wsFile.end(), L'\\', L'/');
+	sFile = ToString(wsFile);
 
 	FileTimeToSystemTime(&tPWIN32_FIND_DATA->ftLastWriteTime, &tSYSTEMTIME);
 
-	// Time gets converted to UTC (TODO : Include local timezone differences)
-	wLastModificationTime = (WORD) (((tSYSTEMTIME.wHour & 0x1F) << 11) + ((tSYSTEMTIME.wMinute & 0x3F) << 5) + ((tSYSTEMTIME.wSecond >> 1) & 0x1F));
-	wLastModificationDate = (WORD) ((((tSYSTEMTIME.wYear - 1980) & 0x7F) << 9) + ((tSYSTEMTIME.wMonth & 0x0F) << 5) + (tSYSTEMTIME.wDay & 0x1F));
+	// Get file's LOCAL time
+	SystemTimeToTzSpecificLocalTime(NULL, &tSYSTEMTIME, &tLOCALSYSTEMTIME);
+
+	wLastModificationTime = (WORD) (((tLOCALSYSTEMTIME.wHour & 0x1F) << 11) + ((tSYSTEMTIME.wMinute & 0x3F) << 5) + ((tSYSTEMTIME.wSecond & 0x1F) >> 1));
+	wLastModificationDate = (WORD) ((((tLOCALSYSTEMTIME.wYear - 1980) & 0x7F) << 9) + ((tLOCALSYSTEMTIME.wMonth & 0x0F) << 5) + (tLOCALSYSTEMTIME.wDay & 0x1F));
 
 	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.CENTRAL_DIRECTORY_FILE_HEADER_SIGNATURE, "\x50\x4b\x01\x02", 4);			/* SIGNATURE - LITTLE_ENDIAN */
 	memcpy(tCENTRAL_DIRECTORY_FILE_HEADER.f.VERSION_MADE_BY, "\x14\x00", 2);											/* VERSION 20 */

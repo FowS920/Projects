@@ -16,6 +16,12 @@
     <Filter Include="ZIP\Library">
       <UniqueIdentifier>{bfbfcc07-01d2-4e16-8b88-380c850c30a2}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Convert">
+      <UniqueIdentifier>{26019509-a182-49f6-ac54-a9b1b3b2ccfe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Convert\Headers">
+      <UniqueIdentifier>{edffe8ed-8122-4818-895f-e136fe621193}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Library_ZIP\Headers\cUNZIP.h">
@@ -41,6 +47,9 @@
     </ClInclude>
     <ClInclude Include="Library_ZIP\Library\zlib.h">
       <Filter>ZIP\Library</Filter>
+    </ClInclude>
+    <ClInclude Include="Library_Convert\Headers\TString.h">
+      <Filter>Convert\Headers</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
